@@ -2,3 +2,7 @@ obj/*
 bin/*
 bin
 obj
+*log
+*.swp
+*res
+.nfs*
