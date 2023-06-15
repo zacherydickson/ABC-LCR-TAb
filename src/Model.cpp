@@ -665,16 +665,16 @@ namespace model{
     }
 
     void COUStepwiseModel::determineEvaluationBlocks(){
-        throw std::exception("Not yet implemented");
+        throw std::logic_error("Not yet implemented");
     }
 
     size_t COUStepwiseModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
-        throw std::exception("Not yet implemented");
+        throw std::logic_error("Not yet implemented");
         return 0;
     }
 
     void COUStepwiseModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
-        throw std::exception("Not yet implemented");
+        throw std::logic_error("Not yet implemented");
     }
 
 }
