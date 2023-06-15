@@ -138,11 +138,11 @@ struct Arg: public option::Arg{
 };
 
 const std::map<optionIndex,std::string> usageMessages = {
-    {CPSHORIZON,"[" + std::to_string(chain::CChain::GetPSHorizon()) + "] --proposal-scaling-horizon  [1,∞)εZ \tThe number of iterations between updates to scaling factor for parameter proposals."},
+    {CPSHORIZON,"[" + std::to_string(chain::CChain::GetPSHorizon()) + "] --proposal-scaling-horizon  [1,∞)εZ \tThe number of iterations between updates to scaling factor for parameter proposals. Also affects the horizon for sim-alpha updates, the latter is always greater and coprime to the former."},
     {CPSINIT,"[" + std::to_string(chain::CChain::GetPSInit()) + "] --initial-proposal-scale (0,∞)εR \tThe inital scale factor for parameter proposals."},
     {CPSOOM,"[" + std::to_string(chain::CChain::GetPSOoM()) + "] --proposal-scaling-extrema-magnitude ,ε \tThe bounds on the scale factor for parameter proposals in base 10 orders of magnitude."},
     {CPSRATE,"[" + std::to_string(chain::CChain::GetPSRate()) + "] --target-acceptance-rate (0,1]εR \t.The target rate of acceptance of parameter proposals"},
-    {CSVALPHA,"[" + std::to_string(chain::CChain::GetSimVarAlpha()) + "] --sim-variance-alpha (0,1]εR \tThe 'confidence level' for evaluated likelihoods; the higher values will consider more similar values to be the different."},
+    {CSVALPHA,"[" + std::to_string(chain::CChain::GetSimVarAlpha()) + "] --initial-sim-variance-alpha (0,1]εR \tThe initial 'confidence level' for evaluated likelihoods; Value adapts to adjust acceptance rates."},
     {CSVN,"[" + std::to_string(chain::CChain::GetSimVarN()) + "] --sim-variance-n [2,∞)εZ \tThe number of full evaluations to perform to estimate the variability between simulations with the same parameter values."},
     {MEERROR,"[" + std::to_string(model::CModel::GetEvalRelError()) +"] --eval-rel-error [0,∞)εR \tThe maximum relative error between observed and simulated data to be considered a match during evaluation."},
     {MGEPROP,"[" + std::to_string(model::CModel::GetGEStepProp()) +"] --gradient-step-proportion (0,∞)εR \tThe size of a step to take when estimating the gradient relative to the current parameter value."},
@@ -169,7 +169,7 @@ const option::Descriptor usage [] = {
     {CPSINIT,0,"","initial-proposal-scale",Arg::PositiveReal,usageMessages.at(CPSINIT).c_str()},
     {CPSOOM,0,"","proposal-scaling-extrema-magnitude",Arg::PositiveReal,usageMessages.at(CPSOOM).c_str()},
     {CPSRATE,0,"","target-acceptance-rate",Arg::NonZeroProportion,usageMessages.at(CPSRATE).c_str()},
-    {CSVALPHA,0,"","sim-variance-alpha",Arg::NonZeroProportion,usageMessages.at(CSVALPHA).c_str()},
+    {CSVALPHA,0,"","initial-sim-variance-alpha",Arg::NonZeroProportion,usageMessages.at(CSVALPHA).c_str()},
     {CSVN,0,"","sim-variance-n",Arg::Natural,usageMessages.at(CSVN).c_str()},
     {MEERROR,0, "","eval-rel-error",Arg::PositiveReal, usageMessages.at(MEERROR).c_str()},
     {MGEPROP,0,"","gradient-step-proportion",Arg::NonNegativeReal, usageMessages.at(MGEPROP).c_str()},

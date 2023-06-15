@@ -7,12 +7,13 @@ namespace chain {
 
 //#### Static Members #####
 
-    size_t CChain::AcceptHorizon = 10;
+    size_t CChain::AcceptScaleHorizon = 25;
+    size_t CChain::AcceptAlphaHorizon = 26;
     bool CChain::BGradientDescent = true;
     double CChain::InitialProposalScale = 1.0;
+    double CChain::InitialSimulationAlpha = 0.10;
     double CChain::MaximumProposalScaleOoM = 9.0;
     size_t CChain::SimulationVarianceEstimationN = 10;
-    double CChain::SimulationAlpha = 0.05;
     //See Mylène Bédard (2008) 10.1016/j.spa.2007.12.005
     //  for aguments why we shouldn't pick this and the real reference for it
     double CChain::TargetAcceptRate = 0.243;
@@ -21,15 +22,15 @@ namespace chain {
 
     CChain::CChain(int id, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nThreads, size_t nSim):
         id(id), prior(std::cref(prior)), tree(std::cref(tree)),
-        obs(std::cref(obs)), gen(), threadPool(nThreads),
-        nSim(nSim)
+        obs(std::cref(obs)), gen(seed), threadPool(nThreads),
+        nSim(nSim), 
+        adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
+                CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
     {
-
         logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
-        gen.seed(seed);
         this->model = prior.GenerateModel(this->gen);
         for(const std::string & name : this->model->getParamNames()){
-            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptHorizon,CChain::TargetAcceptRate,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
+            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::TargetAcceptRate,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
         }
         if(id == 0){
             std::stringstream stream;
@@ -48,14 +49,15 @@ namespace chain {
 
     CChain::CChain(int id, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nThreads, size_t nSim, std::string modelStr):
         id(id), prior(std::cref(prior)), tree(std::cref(tree)),
-        obs(std::cref(obs)), gen(), threadPool(nThreads),
-        nSim(nSim)
+        obs(std::cref(obs)), gen(seed), threadPool(nThreads),
+        nSim(nSim),
+        adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
+                CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
     {
-        gen.seed(seed);
         logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
         this->model = prior.GenerateModel(this->gen);
         for(const std::string & name : this->model->getParamNames()){
-            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptHorizon,CChain::TargetAcceptRate,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
+            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::TargetAcceptRate,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
         }
         this->model->setToStr(modelStr);
         if(id == 0){
@@ -98,7 +100,21 @@ namespace chain {
         if(rate <= 0.0 || rate > 1.0){
             throw std::invalid_argument("Attempt to tune CChain proposal scaling with a target acceptance rate outside the bounds of (0,1]");
         }
-        CChain::AcceptHorizon = horizon;
+        CChain::AcceptScaleHorizon = horizon;
+        CChain::AcceptAlphaHorizon = horizon;
+        size_t gcd = 1;
+        do{
+            CChain::AcceptAlphaHorizon++;
+            size_t a(CChain::AcceptScaleHorizon), b(CChain::AcceptAlphaHorizon);
+            while( a != 0 && b != 0){
+                if(a > b){
+                    a %= b;
+                } else {
+                    b %= a;
+                }
+            }
+            gcd = std::max(a,b);
+        } while(gcd > 1);
         CChain::InitialProposalScale = init;
         CChain::MaximumProposalScaleOoM = oom;
         CChain::TargetAcceptRate = rate;
@@ -106,12 +122,12 @@ namespace chain {
 
     void CChain::TuneSimVar(double alpha, size_t n){
         if(alpha <= 0 || alpha > 1.0){
-            throw std::invalid_argument("Attempt to tune CChain simulation variance handling with an alpha paramter outside of (0,1]");
+            throw std::invalid_argument("Attempt to tune CChain simulation variance handling with an initial alpha paramter outside of (0,1]");
         }
         if(n < 2){
             throw std::invalid_argument("Attempt to tune CChain simulation variance handling with insufficient runs to estimate variance");
         }
-        CChain::SimulationAlpha = alpha;
+        CChain::InitialSimulationAlpha = alpha;
         CChain::SimulationVarianceEstimationN = n;
     }
 
@@ -135,7 +151,7 @@ namespace chain {
         //
         //Consider proposals generously, ie. that the model is inflated and the proposal
         // is deflated, so the difference would be larger
-        logLikelihoodRatio += stats::NormalQuantile(1-CChain::SimulationAlpha/2.0) * std::sqrt(2) * this->evaluationSD;
+        logLikelihoodRatio += stats::NormalQuantile(1-this->adaptiveSimAlpha.getValue()/2.0) * std::sqrt(2) * this->evaluationSD;
         double logAccept = logLikelihoodRatio + priorCorrection + sizeCorrection;
         logAccept *= temperature;
         if(std::isinf(m2.getNLogP())){
@@ -194,11 +210,14 @@ namespace chain {
             logger::Log("Chain %d) %s proposal with probability %0.2f%%",logger::INFO,this->id,result.c_str(),accept*100.0);
             if(bAccepted || bOnce){ //Update based on the whole assessment
                 //Update the proposal scales as necessary
+                double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
                 for(const std::string & name : paramNameSet){
-                    double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
                     if(this->adaptiveScaleMap[name]->update(scaleUpdate,this->gen)){
                         logger::Log("Chain %d) scale for %s proposals updated to %0.04f natural OoMs",logger::INFO,this->id,name.c_str(),std::log(this->adaptiveScaleMap[name]->getValue()));
                     }
+                }
+                if(this->adaptiveSimAlpha.update(scaleUpdate,this->gen)){
+                    logger::Log("Chain %d) alpha for simulation variance handling updated to %0.04f base 10 OoMs",logger::INFO,this->id,std::log10(this->adaptiveSimAlpha.getValue()));
                 }
             }
             if(!bAccepted && !bOnce){

@@ -26,6 +26,7 @@ namespace chain {
             const int id;
         protected:
             std::unordered_map<std::string,aparam::CAdaptiveParameter *> adaptiveScaleMap;
+            aparam::CAdaptiveParameter adaptiveSimAlpha;
             bool bFixed;
             double evaluationSD;
             std::mt19937 gen;
@@ -38,21 +39,22 @@ namespace chain {
             std::reference_wrapper<const Tree> tree;
         //Static Members
         protected:
-            static size_t AcceptHorizon;
+            static size_t AcceptScaleHorizon;
+            static size_t AcceptAlphaHorizon;
             static bool BGradientDescent;
             static double InitialProposalScale;
+            static double InitialSimulationAlpha;
             static double MaximumProposalScaleOoM;
-            static double SimulationAlpha;
             static size_t SimulationVarianceEstimationN;
             static double TargetAcceptRate;
         //Static Methods
         public:
             static void DisableGradientDescent() {CChain::BGradientDescent = false;}
-            static size_t GetPSHorizon() {return CChain::AcceptHorizon;}
+            static size_t GetPSHorizon() {return CChain::AcceptScaleHorizon;}
             static double GetPSInit() {return CChain::InitialProposalScale;}
             static double GetPSOoM() {return CChain::MaximumProposalScaleOoM;}
             static double GetPSRate() {return CChain::TargetAcceptRate;}
-            static double GetSimVarAlpha() {return CChain::SimulationAlpha;}
+            static double GetSimVarAlpha() {return CChain::InitialSimulationAlpha;}
             static size_t GetSimVarN() {return CChain::SimulationVarianceEstimationN;}
             static void TunePS(size_t horizon, double init, double oom, double rate);
             static void TuneSimVar(double alpha, size_t n);
