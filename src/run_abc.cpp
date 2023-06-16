@@ -345,7 +345,7 @@ std::string ReadNewickFile(std::string path){
     std::ifstream * file = new std::ifstream;
     file->open(path);
     if(file->fail()){
-        throw std::logic_error("File does not exist");
+        throw std::logic_error("Newick file does not exist");
     }
     char symbol;
     while((symbol = file->get()) != ';'){
@@ -366,7 +366,7 @@ model::StateMap ReadObservationsFile(std::string path){
     std::ifstream * file = new std::ifstream;
     file->open(path);
     if(file->fail()){
-        throw std::logic_error("File does not exist");
+        throw std::logic_error("Newick file does not exist");
     }
     char symbol;
     std::string id, cur;
