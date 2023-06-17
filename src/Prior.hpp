@@ -43,6 +43,7 @@ namespace prior {
             std::ostream& output(std::ostream & os) const;
         //Static Methods
         protected:
+            double calculatePriorDensity(const std::string & name, double value, stats::DistributionType type, const stats::ParamMap & hyperparameters) const;
             void CollapseDuplicateInitialStates();
             CDiscreteFiniteRandomVariable constructDFRV(SParameterPriorSpecification paramPrior);
     };

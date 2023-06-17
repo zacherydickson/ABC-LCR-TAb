@@ -4,6 +4,7 @@
 #include <numeric>
 #include "Prior.hpp"
 #include <stdexcept>
+#include <sstream>
 
 
 namespace prior {
@@ -56,13 +57,27 @@ namespace prior {
             //Note: pair.first is the parameter name which matches the PriorParameter names
             //      pair.second is a model::SParameterSpecification Object
             const SParameterPriorSpecification & priorSpec = this->mParamPriors.at(pair.first);
-            double p = stats::GetPDF(pair.second.value,priorSpec.type,priorSpec.hyperparameters);
+            double p = this->calculatePriorDensity(pair.first,pair.second.value,priorSpec.type,priorSpec.hyperparameters);
             if(p == 0){
                 return -std::numeric_limits<double>::infinity();
             }
             logDensity += std::log(p);
         }
         return logDensity;
+    }
+
+    double CPrior::calculatePriorDensity(const std::string & name, double value, stats::DistributionType type, const stats::ParamMap & hyperparameters) const {
+        double p = 1.0;
+        try{
+            stats::GetPDF(value,type,hyperparameters);
+        } catch (std::exception & e){
+            std::stringstream msg;
+            msg << "An error occured calculating the prior density for ";
+            msg << name << " @ " << value << "; ";
+            msg << e.what();
+            throw std::runtime_error(msg.str().c_str());
+        }
+        return p;
     }
 
     std::unique_ptr<model::CModel> CPrior::GenerateModel(std::mt19937 & gen) const{
@@ -76,7 +91,7 @@ namespace prior {
             param.lowerBound = domain.min;
             param.upperBound = domain.max;
             param.value = stats::GetQuantile(stats::generate_open_canonical(gen),pair.second.type,pair.second.hyperparameters);
-            double p = stats::GetPDF(param.value,pair.second.type,pair.second.hyperparameters);
+            double p = this->calculatePriorDensity(pair.first,param.value,pair.second.type,pair.second.hyperparameters);
             logDensity += std::log(p);
             parameters[pair.first] = param;
         }
@@ -142,7 +157,8 @@ namespace prior {
         }
         for(int i = domain.min; i <= domain.max; i++){
             vVals.push_back(i);
-            vProbs.push_back(stats::GetPDF((double)i,paramPrior.type,paramPrior.hyperparameters));
+            double p = this->calculatePriorDensity("InitialState",(double)i,paramPrior.type,paramPrior.hyperparameters);
+            vProbs.push_back(p);
         }
         return CDiscreteFiniteRandomVariable(vVals,vProbs);
     }

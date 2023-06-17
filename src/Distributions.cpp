@@ -384,6 +384,8 @@ namespace stats {
             throw std::overflow_error("PoissonPMF result unrepresentable; large gamma");
         } catch (std::underflow_error & e){
             throw std::overflow_error("PoissonPMF result unrepresentable; small gamma");
+        } catch (boost::math::evaluation_error & e){
+            throw std::logic_error("PoissonPMF result took to long to evaluate gamma function");
         }
         return pow(lambda,k) * exp(-lambda) / gammaRes;
     }
@@ -545,6 +547,8 @@ namespace stats {
             throw std::overflow_error("TPDF result unrepresentable; large gamma");
         } catch (std::underflow_error & e){
             throw std::overflow_error("TPDF result unrepresentable; small gamma");
+        } catch (boost::math::evaluation_error & e){
+            throw std::logic_error("TPDF result took to long to evaluate gamma function");
         }
         double coef = gammaRes1 / gammaRes2 / std::sqrt(v*pi);
         double base = 1.0 + std::pow(x,2.0) / v;
@@ -563,9 +567,11 @@ namespace stats {
             gammaRes1 = boost::math::tgamma((v + 1.0)/2.0);
             gammaRes2 = boost::math::tgamma(v/2.0);
         } catch (std::overflow_error & e){
-            throw std::overflow_error("TPDF result unrepresentable; large gamma");
+            throw std::overflow_error("TCDF result unrepresentable; large gamma");
         } catch (std::underflow_error & e){
-            throw std::overflow_error("TPDF result unrepresentable; small gamma");
+            throw std::overflow_error("TCDF result unrepresentable; small gamma");
+        } catch (boost::math::evaluation_error & e){
+            throw std::logic_error("TCDF result took to long to evaluate gamma function");
         }
         return 0.5 + x * gammaRes1 * h / gammaRes2 / std::sqrt(v*pi);
     }
@@ -704,6 +710,8 @@ namespace stats {
             throw;
         } catch (std::underflow_error & e){ //Poisson
             throw;
+        } catch (boost::math::evaluation_error & e){ //Poisson or T
+            throw;
         }
         return d;
     }
@@ -761,6 +769,8 @@ namespace stats {
         } catch (std::invalid_argument & e){ //Truncated Normal
             throw;
         } catch (std::logic_error & e){ //Skellam
+            throw;
+        } catch (boost::math::evaluation_error & e){ //T
             throw;
         }
         return q;
