@@ -131,7 +131,7 @@ namespace model {
 
         //Methods
         public:
-            bool isFixed() const {return this->bFixed;}
+            virtual void determineEvaluationBlocks();
             GradientMap estimateGradient(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const;
             void evaluate(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim);
             double evaluateBlock(const EvaluationBlock & evalBlock, const Tree & tree, const StateMap & obs,std::mt19937 & gen, size_t nSim) const;
@@ -142,6 +142,7 @@ namespace model {
             double getMinEval() const;
             const ParamMap & getParamMap() {return this->parameters;}
             std::unique_ptr<CModel> goldenSearch(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const;
+            bool isFixed() const {return this->bFixed;}
             std::ostream& output(std::ostream&) const;
             std::unique_ptr<CModel> proposeJump(const ProposalScaleMap & scaleMap, std::mt19937 & gen) const;
             void setToStr(const std::string & modelStr);
@@ -156,7 +157,8 @@ namespace model {
         public:
             virtual std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const = 0;
         protected:
-            virtual void determineEvaluationBlocks() = 0;
+            virtual bool evalIsLess(int a, int b) = 0;
+            virtual bool evalIsEqual(int a, int b) = 0;
             virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const = 0;
             virtual void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const = 0;
     };
@@ -186,8 +188,9 @@ namespace model {
             const std::vector<std::string> & getParamNames() const override {return parameterNames;}
         private:
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
-            void determineEvaluationBlocks() override;
             size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
+            bool evalIsLess(int a, int b) override {return this->vInitStates[a].length < this->vInitStates[b].length;}
+            bool evalIsEqual(int a, int b) override {return this->vInitStates[a].length == this->vInitStates[b].length;}
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
     };
 
@@ -214,7 +217,8 @@ namespace model {
             const std::vector<std::string> & getParamNames() const override {return this->parameterNames;}
         private:
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
-            void determineEvaluationBlocks() override;
+            virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a].abundance < this->vInitStates[b].abundance;}
+            virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a].abundance == this->vInitStates[b].abundance;}
             size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
     };

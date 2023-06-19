@@ -374,6 +374,42 @@ namespace model{
 
 
     //CModel -- concrete, protected
+    
+    void CModel::determineEvaluationBlocks(){
+        using namespace std::placeholders;
+        std::vector<int> vIdxs(this->vInitStates.size());
+        std::iota(vIdxs.begin(),vIdxs.end(),0);
+        //Put the indexes in ascending order of their length
+        std::sort(vIdxs.begin(),vIdxs.end(),std::bind(&CModel::evalIsLess,this,_1,_2));
+//                [&](int a, int b) -> bool {
+//                    return this->vInitStates[a].abundance < this->vInitStates[b].abundance;
+//                });
+        EvaluationBlock curBlock;
+        curBlock.push_back(std::ref(this->vInitStates[vIdxs[0]]));
+        for(int i = 0; i < vIdxs.size()-1; i++){
+            auto it1 = vIdxs.begin()+i;
+            auto it2 = vIdxs.begin()+(i+1);
+            //Check if prot[idx[i]]'s length is equal to the subsequent state's length
+            if(this->evalIsEqual(*it1,*it2)){
+            //if(this->vInitStates[*it1].abundance == this->vInitStates[*it2].abundance){
+                //Add the next protein to the current block
+                curBlock.push_back(std::ref(this->vInitStates[*it2]));
+                vIdxs.erase(it2); //Stop considering this protein
+                i--; //Take  step back so that the next iteration compares the current state again
+            } else { //The current Block is complete, start a new one
+                this->vEvalBlocks.push_back(curBlock);
+                curBlock.clear();
+                //Start the next block with the next protein
+                curBlock.push_back(std::ref(this->vInitStates[*it2]));
+            }
+        }
+        this->vEvalBlocks.push_back(curBlock);
+        //Sort the evaluation blocks in descending order by size
+        std::sort(this->vEvalBlocks.begin(),this->vEvalBlocks.end(),
+            [&](const EvaluationBlock & a, const EvaluationBlock & b) -> bool {
+                return b.size() < a.size();
+            });
+    }
 
     double CModel::evaluateBlocks(int id, const std::vector<int> & vBlockIdxs, const Tree & tree, const StateMap & obs,size_t seed, size_t nSim) const{
         std::mt19937 gen(seed);
@@ -560,40 +596,6 @@ namespace model{
         return std::unique_ptr<CModel>(new CStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio));
     }
 
-    void CStepwiseOUModel::determineEvaluationBlocks(){
-        std::vector<int> vIdxs(this->vInitStates.size());
-        std::iota(vIdxs.begin(),vIdxs.end(),0);
-        //Put the indexes in ascending order of their length
-        std::sort(vIdxs.begin(),vIdxs.end(),
-                [&](int a, int b) -> bool {
-                    return this->vInitStates[a].length < this->vInitStates[b].length;
-                });
-        EvaluationBlock curBlock;
-        curBlock.push_back(std::ref(this->vInitStates[vIdxs[0]]));
-        for(int i = 0; i < vIdxs.size()-1; i++){
-            auto it1 = vIdxs.begin()+i;
-            auto it2 = vIdxs.begin()+(i+1);
-            //Check if prot[idx[i]]'s length is equal to the subsequent state's length
-            if(this->vInitStates[*it1] == this->vInitStates[*it2]){
-                //Add the next protein to the current block
-                curBlock.push_back(std::ref(this->vInitStates[*it2]));
-                vIdxs.erase(it2); //Stop considering this protein
-                i--; //Take  step back so that the next iteration compares the current state again
-            } else { //The current Block is complete, start a new one
-                this->vEvalBlocks.push_back(curBlock);
-                curBlock.clear();
-                //Start the next block with the next protein
-                curBlock.push_back(std::ref(this->vInitStates[*it2]));
-            }
-        }
-        this->vEvalBlocks.push_back(curBlock);
-        //Sort the evaluation blocks in descending order by size
-        std::sort(this->vEvalBlocks.begin(),this->vEvalBlocks.end(),
-            [&](const EvaluationBlock & a, const EvaluationBlock & b) -> bool {
-                return b.size() < a.size();
-            });
-    }
-
     size_t CStepwiseOUModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const {
         //Object to keep track of the counts across tips, proteins, and data types
         size_t nProt = 0;
@@ -664,9 +666,6 @@ namespace model{
         return std::unique_ptr<CModel>(new COUStepwiseModel(this->vInitStates,newParams,logHastingsRatio));
     }
 
-    void COUStepwiseModel::determineEvaluationBlocks(){
-        throw std::logic_error("Not yet implemented");
-    }
 
     size_t COUStepwiseModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
         throw std::logic_error("Not yet implemented");
