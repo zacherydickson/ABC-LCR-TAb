@@ -30,7 +30,7 @@ namespace chain {
         logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
         this->model = prior.GenerateModel(this->gen);
         for(const std::string & name : this->model->getParamNames()){
-            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::TargetAcceptRate,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
+            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::InitialProposalScale,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
         }
         if(id == 0){
             std::stringstream stream;
@@ -57,7 +57,7 @@ namespace chain {
         logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
         this->model = prior.GenerateModel(this->gen);
         for(const std::string & name : this->model->getParamNames()){
-            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::TargetAcceptRate,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
+            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::InitialProposalScale,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
         }
         this->model->setToStr(modelStr);
         if(id == 0){
