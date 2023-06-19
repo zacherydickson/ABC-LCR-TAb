@@ -601,11 +601,11 @@ namespace model{
         size_t nProt = 0;
         int length = evalBlock[0].get().length.getMode();
         for(const auto & state : evalBlock){
+            int abundance = state.get().abundance.getMode();
             //Every protein has the same length at the root
             //  To have consistent polymorphism, we'll waste the memory and repeat it for
             //  each evalBlock
             rootNode.value.vLength.push_back(length);
-            int abundance = state.get().abundance.getMode();
             rootNode.value.vAbundance.push_back(abundance);
             nProt += state.get().vProtIdxs.size();
         }
@@ -666,10 +666,22 @@ namespace model{
         return std::unique_ptr<CModel>(new COUStepwiseModel(this->vInitStates,newParams,logHastingsRatio));
     }
 
-
     size_t COUStepwiseModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
         throw std::logic_error("Not yet implemented");
         return 0;
+        //Object to keep track of the counts across tips, proteins, and data types
+        size_t nProt = 0;
+        int abundance = evalBlock[0].get().abundance.getMode();
+        for(const auto & state : evalBlock){
+            int length = state.get().length.getMode();
+            rootNode.value.vLength.push_back(length);
+            //Every protein has the same abundance at the root
+            //  To have consistent polymorphism, we'll waste the memory and repeat it for
+            //  each evalBlock
+            rootNode.value.vAbundance.push_back(abundance);
+            nProt += state.get().vProtIdxs.size();
+        }
+        return nProt;
     }
 
     void COUStepwiseModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
