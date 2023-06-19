@@ -32,24 +32,22 @@ std::string Version = "V0.0.0";
 
 int logger::Verbosity = 2;
 
-
-//Chain Variables
-
 //Threading
 const int MaxThreads = (std::thread::hardware_concurrency()) ? std::thread::hardware_concurrency() : 1;
 
 struct Opts {
+    Opts() : burnin(100), sampleSize(1000), simSize(200), nChains(1), nThreads(1), seed((long unsigned int)std::time(0)), tgtSwpRate(0.5), tempHorizon(50), initTempInc(0.1) {}
     int burnin, simSize, sampleSize, nChains, nThreads, tempHorizon;
     long unsigned int seed;
     double tgtSwpRate,initTempInc;
     std::string obs, prior, resume, tree;
-};
+} defaultOpts;
 
 enum InputMisMatchCase {VALID, VAR_OBS, PRIOR_OBS, TREE_OBS, MISSING_TIP, NO_OBS};
 
 /*### HELP AND USAGE #########################################################*/
 
-enum optionIndex{UNKNOWN,HELP,BURNIN,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVN,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
+enum optionIndex{UNKNOWN,HELP,BURNIN,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
 
 struct Arg: public option::Arg{
     static void printError(const char* msg1, const option::Option& opt, const char* msg2){
@@ -137,54 +135,108 @@ struct Arg: public option::Arg{
     }
 };
 
+const std::map<optionIndex,std::string> longOptionNames = {
+    {HELP,"help"},
+    {BURNIN,"burn-in"},
+    {CGDISABLE,"enable-gradient-descent"},
+    {CPSHORIZON,"proposal-scaling-horizon"},
+    {CPSINIT,"initial-proposal-scale"},
+    {CPSOOM,"proposal-scaling-extrema-magnitude"},
+    {CPSRATE,"target-acceptance-rate"},
+    {CSVALPHA,"initial-sim-variance-alpha"},
+    {CSVAHORIZ,"sim-variance-alpha-horizon"},
+    {CSVREHORIZ,"sim-variance-evaluation-horizon"},
+    {CSVN,"sim-variance-n"},
+    {MEERROR,"eval-rel-error"},
+    {MGEPROP,"gradient-step-proportion"},
+    {MGSMULT,"golden-search-boundary-mult"},
+    {MGSTOL,"golden-search-tolerance"},
+    {NCHAINS,"chain-count"},
+    {NTHREADS,"threads"},
+    {OBSFILE,"observations"},
+    {PRIORFILE,"prior"},
+    {QUIET,"quiet"},
+    {RESUME,"resume-from"},
+    {SAMPLESIZE,"samples"},
+    {SEED,"seed"},
+    {SIMSIZE,"simulation-count"},
+    {THORIZON,"swap-horizon"},
+    {TINIT,"initial-temperature-increment"},
+    {TRATE,"target-swap-rate"},
+    {TREEFILE,"tree"},
+    {VERBOSITY,"verbose"}
+};
+
 const std::map<optionIndex,std::string> usageMessages = {
-    {CPSHORIZON,"[" + std::to_string(chain::CChain::GetPSHorizon()) + "] --proposal-scaling-horizon  [1,∞)εZ \tThe number of iterations between updates to scaling factor for parameter proposals. Also affects the horizon for sim-alpha updates, the latter is always greater and coprime to the former."},
-    {CPSINIT,"[" + std::to_string(chain::CChain::GetPSInit()) + "] --initial-proposal-scale (0,∞)εR \tThe inital scale factor for parameter proposals."},
-    {CPSOOM,"[" + std::to_string(chain::CChain::GetPSOoM()) + "] --proposal-scaling-extrema-magnitude ,ε \tThe bounds on the scale factor for parameter proposals in base 10 orders of magnitude."},
-    {CPSRATE,"[" + std::to_string(chain::CChain::GetPSRate()) + "] --target-acceptance-rate (0,1]εR \t.The target rate of acceptance of parameter proposals"},
-    {CSVALPHA,"[" + std::to_string(chain::CChain::GetSimVarAlpha()) + "] --initial-sim-variance-alpha (0,1]εR \tThe initial 'confidence level' for evaluated likelihoods; Value adapts to adjust acceptance rates."},
-    {CSVN,"[" + std::to_string(chain::CChain::GetSimVarN()) + "] --sim-variance-n [2,∞)εZ \tThe number of full evaluations to perform to estimate the variability between simulations with the same parameter values."},
-    {MEERROR,"[" + std::to_string(model::CModel::GetEvalRelError()) +"] --eval-rel-error [0,∞)εR \tThe maximum relative error between observed and simulated data to be considered a match during evaluation."},
-    {MGEPROP,"[" + std::to_string(model::CModel::GetGEStepProp()) +"] --gradient-step-proportion (0,∞)εR \tThe size of a step to take when estimating the gradient relative to the current parameter value."},
-    {MGSMULT,"[" + std::to_string(model::CModel::GetGSMult()) +"] --golden-search-boundary-mult (0,∞)εR \tWhen minimizing in the gradient direction, the maximum distance to search relative to parameter value."},
-    {MGSTOL,"[" + std::to_string(model::CModel::GetGSTolProp()) +"] --golden-search-boundary-mult (0,∞)εR \tWhen minimizing in the gradient direction, searching is terminated once the search interval has shrunk to this proportion of its initial size."}
+    {BURNIN,"[" + std::to_string(defaultOpts.burnin) + "] --" + longOptionNames.at(BURNIN) + ", -b [1,∞)εZ \tThe number of accepted parameter sets to initially ignore."},
+    {CPSHORIZON,"[" + std::to_string(chain::CChain::GetPSHorizon()) + "] --" + longOptionNames.at(CPSHORIZON) + " [1,∞)εZ \tThe number of iterations between updates to scaling factor for parameter proposals."},
+    {CPSINIT,"[" + std::to_string(chain::CChain::GetPSInit()) + "] --" + longOptionNames.at(CPSINIT) + " (0,∞)εR \tThe inital scale factor for parameter proposals."},
+    {CPSOOM,"[" + std::to_string(chain::CChain::GetPSOoM()) + "] --" + longOptionNames.at(CPSOOM) + " (0,∞)εR \tThe bounds on the scale factor for parameter proposals in base 10 orders of magnitude."},
+    {CPSRATE,"[" + std::to_string(chain::CChain::GetPSRate()) + "] --" + longOptionNames.at(CPSRATE) + " (0,1]εR \t.The target rate of acceptance of parameter proposals"},
+    {CGDISABLE," --" + longOptionNames.at(CGDISABLE) + " \tAfter a failed proposal, a local gradient is estimated and then a minimum opposite the gradient is found by golden search, enabling will explore more rapidly, but proposals will occur slower."},
+    {CSVALPHA,"[" + std::to_string(chain::CChain::GetSimVarAlpha()) + "] --" + longOptionNames.at(CSVALPHA) + " (0,1]εR \tThe initial 'confidence level' for evaluated likelihoods; Value adapts to adjust acceptance rates."},
+    {CSVAHORIZ,"[" + std::to_string(chain::CChain::GetSimVarAlphaHorizon()) + "] --" + longOptionNames.at(CSVAHORIZ) + " (0,∞)εZ \tThe number of iterations betwwen updates of the alpha value in variance handling. Lower values decrease the time spent at near minima."},
+    {CSVREHORIZ,"[" + std::to_string(chain::CChain::GetSimVarReEvalHorizon()) + "] --" + longOptionNames.at(CSVREHORIZ) + " (0,∞)εZ \t The number of iterations between estimates of the current simulation variability. More frequent updates are more accurate, but will significant slow the program."},
+    {CSVN,"[" + std::to_string(chain::CChain::GetSimVarN()) + "] --" + longOptionNames.at(CSVN) + " [2,∞)εZ \tThe number of full evaluations to perform to estimate the variability between simulations with the same parameter values."},
+    {HELP, " --" + longOptionNames.at(HELP) + ", -h \tPrint usage and exit"},
+    {MEERROR,"[" + std::to_string(model::CModel::GetEvalRelError()) +"] --" + longOptionNames.at(MEERROR) + " [0,∞)εR \tThe maximum relative error between observed and simulated data to be considered a match during evaluation."},
+    {MGEPROP,"[" + std::to_string(model::CModel::GetGEStepProp()) +"] --" + longOptionNames.at(MGEPROP) + " (0,∞)εR \tThe size of a step to take when estimating the gradient relative to the current parameter value."},
+    {MGSMULT,"[" + std::to_string(model::CModel::GetGSMult()) +"] --" + longOptionNames.at(MGSMULT) + " (0,∞)εR \tWhen minimizing in the gradient direction, the maximum distance to search relative to parameter value."},
+    {MGSTOL,"[" + std::to_string(model::CModel::GetGSTolProp()) +"] --" + longOptionNames.at(MGSTOL) + " (0,∞)εR \tWhen minimizing in the gradient direction, searching is terminated once the search interval has shrunk to this proportion of its initial size."},
+    {NCHAINS,"[" + std::to_string(defaultOpts.nChains) + "] --" + longOptionNames.at(NCHAINS) + ", -c [1,∞)εZ \tThe number of independent chains to run."},
+    {NTHREADS,"[" + std::to_string(defaultOpts.nThreads) + "] --" + longOptionNames.at(NTHREADS) + ", -j [1,∞)εZ \t The maximum number of threads to use"},
+    {PRIORFILE,"--" + longOptionNames.at(PRIORFILE) + ", -p path \tA file specifying the prior(s) to use. Each prior's first line is \">PriorName\". Each subsequent line is in the format key\\tvalue. values may be comma separated lists. Use --priorlist and --default-prior for more information."},
+    {OBSFILE,"--" + longOptionNames.at(OBSFILE) + ", -o path\tA tab delimited file specifying the observed values at the tree tips. The file will have no header and columns of nodeID, abundance, and length."},
+    {QUIET, " --" + longOptionNames.at(QUIET) + ", -q \tDecrement the level of verbosity."},
+    {RESUME,"--" + longOptionNames.at(RESUME) + ", -r path \tA results file from a previous run, will resume with the number of accepted samples from the file; All chains will start from the same point. Adaptive scaling parameters will be reset."},
+    {SEED, "--" + longOptionNames.at(SEED) + " [1,∞)εZ \tA seed for the random number generator"},
+    {SIMSIZE, "[" + std::to_string(defaultOpts.simSize) + "] --" + longOptionNames.at(SIMSIZE) + ", -s [1,∞)εZ \tThe number of simulations to run for a generated set of model parameters. Each additional simulation improves the estimation of the distribution of values at tree nodes at the cost of run time."},
+    {SAMPLESIZE, "[" + std::to_string(defaultOpts.sampleSize) + "] --" + longOptionNames.at(SAMPLESIZE) + ", -n [1,∞)εZ \tThe number of accepted paramter sets at which to stop the calculation and estimate posteriors."},
+    {TRATE,"[" + std::to_string(defaultOpts.tgtSwpRate) + "] --" + longOptionNames.at(TRATE) + " (0,1]εR \tThe target proportion of proposed swaps which are accepted."},
+    {TINIT,"[" + std::to_string(defaultOpts.initTempInc) + "] --" + longOptionNames.at(TINIT) + " (0,∞)εR \tThe initial increment in chain temperature between subsequent chains."},
+    {THORIZON,"[" + std::to_string(defaultOpts.tempHorizon) + "] --" + longOptionNames.at(THORIZON) + " [1,∞)εZ \tThe number of iterations between attempts to make swaps between chains; also the number of attempted swaps between updates to the temperature increment."},
+    {TREEFILE,"--" + longOptionNames.at(TREEFILE) + ", -t path \tA newick formatted file containing the tree on which to run simulations"},
+    {VERBOSITY, " --" + longOptionNames.at(VERBOSITY) + ", -v \tIncrement the level of verbosity."}
 };
 
 const option::Descriptor usage [] = {
     {UNKNOWN, 0, "","",option::Arg::None, "===Description\n Runs an approximate bayesian calculation with a given prior and its associated model."},
     {UNKNOWN,0, "","",option::Arg::None, "===USAGE\n run_abc [options] --prior file --observations file --tree file"},
     {UNKNOWN,0, "","",option::Arg::None, "===REQUIRED INPUTS"},
-    {OBSFILE,0, "o","observations", Arg::String,"--observations, -o path\tA tab delimited file specifying the observed values at the tree tips. The file will have no header and columns of nodeID, abundance, and length."},
-    {PRIORFILE,0, "p","prior", Arg::String,"--prior, -p path \tA file specifying the prior(s) to use. Each prior's first line is \">PriorName\". Each subsequent line is in the format key\\tvalue. values may be comma separated lists. Use --priorlist and --default-prior for more information."},
-    {TREEFILE,0, "t","tree", Arg::String,"--tree, -t path \tA newick formatted file containing the tree on which to run simulations"},
+    {OBSFILE,0, "o",longOptionNames.at(OBSFILE).c_str(), Arg::String,usageMessages.at(OBSFILE).c_str()},
+    {PRIORFILE,0, "p",longOptionNames.at(PRIORFILE).c_str(), Arg::String,usageMessages.at(PRIORFILE).c_str()},
+    {TREEFILE,0, "t",longOptionNames.at(TREEFILE).c_str(), Arg::String,usageMessages.at(TREEFILE).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "\tNote: All nodeIDs in the observations must be node labes in the given tree"},
     {UNKNOWN,0, "","",option::Arg::None, "===MCMC OPTIONS"},
-    {BURNIN,0,"b","burn-in",Arg::Natural,"[100] --burn-in, -b [1,∞)εZ \tThe number of accepted parameter sets to initially ignore."},
-    {NCHAINS,0,"c","chain-count",Arg::Natural,"[1] --chain-count, -c [1,∞)εZ \tThe number of independent chains to run."},
-    {SAMPLESIZE,0,"n","samples",Arg::Natural, "[1000] --samples, -n [1,∞)εZ \tThe number of accepted paramter sets at which to stop the calculation and estimate posteriors."},
-    {SIMSIZE,0,"s","simulation-count",Arg::Natural, "[200] --simulation-count, -s [1,∞)εZ \tThe number of simulations to run for a generated set of model parameters. Each additional simulation improves the estimation of the distribution of values at tree nodes at the cost of run time."},
+    {BURNIN,0,"b",longOptionNames.at(BURNIN).c_str(),Arg::Natural,usageMessages.at(BURNIN).c_str()},
+    {NCHAINS,0,"c",longOptionNames.at(NCHAINS).c_str(),Arg::Natural,usageMessages.at(NCHAINS).c_str()},
+    {SAMPLESIZE,0,"n",longOptionNames.at(SAMPLESIZE).c_str(),Arg::Natural,usageMessages.at(SAMPLESIZE).c_str()},
+    {SIMSIZE,0,"s",longOptionNames.at(SIMSIZE).c_str(),Arg::Natural,usageMessages.at(SIMSIZE).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "===TUNING OPTIONS"},
-    {CGDISABLE,0,"","disable-gradient-descent",option::Arg::None," --disable-gradient-descent \tBy default, after a failed proposal, a local gradient is estimated and then a minimum opposite the gradient is found by golden search, disabling will explore less rapidly, but proposals will occur faster."},
-    {CPSHORIZON,0,"","proposal-scaling-horizon",Arg::Natural,usageMessages.at(CPSHORIZON).c_str()},
-    {CPSINIT,0,"","initial-proposal-scale",Arg::PositiveReal,usageMessages.at(CPSINIT).c_str()},
-    {CPSOOM,0,"","proposal-scaling-extrema-magnitude",Arg::PositiveReal,usageMessages.at(CPSOOM).c_str()},
-    {CPSRATE,0,"","target-acceptance-rate",Arg::NonZeroProportion,usageMessages.at(CPSRATE).c_str()},
-    {CSVALPHA,0,"","initial-sim-variance-alpha",Arg::NonZeroProportion,usageMessages.at(CSVALPHA).c_str()},
-    {CSVN,0,"","sim-variance-n",Arg::Natural,usageMessages.at(CSVN).c_str()},
-    {MEERROR,0, "","eval-rel-error",Arg::PositiveReal, usageMessages.at(MEERROR).c_str()},
-    {MGEPROP,0,"","gradient-step-proportion",Arg::NonNegativeReal, usageMessages.at(MGEPROP).c_str()},
-    {MGSMULT,0,"","golden-search-boundary-mult",Arg::NonNegativeReal, usageMessages.at(MGSMULT).c_str()},
-    {MGSTOL,0,"","golden-search-tolerance",Arg::NonNegativeReal, usageMessages.at(MGSTOL).c_str()},
-    {THORIZON,0,"","swap-horizon",Arg::Natural,"[50] --swap-horizon [1,∞)εZ \tThe number of iterations between attempts to make swaps between chains; also the number of attempted swaps between updates to the temperature increment."},
-    {TINIT,0,"","initial-temperature-increment",Arg::PositiveReal,"[0.1] --initial-temperature-increment (0,∞)εR \tThe initial increment in chain temperature between subsequent chains."},
-    {TRATE,0,"","target-swap-rate",Arg::NonZeroProportion,"[0.5] --target-swap-rate (0,1]εR \tThe target proportion of proposed swaps which are accepted."},
+    {CGDISABLE,0,"",longOptionNames.at(CGDISABLE).c_str(),option::Arg::None,usageMessages.at(CGDISABLE).c_str()},
+    {CPSHORIZON,0,"",longOptionNames.at(CPSHORIZON).c_str(),Arg::Natural,usageMessages.at(CPSHORIZON).c_str()},
+    {CPSINIT,0,"",longOptionNames.at(CPSINIT).c_str(),Arg::PositiveReal,usageMessages.at(CPSINIT).c_str()},
+    {CPSOOM,0,"",longOptionNames.at(CPSOOM).c_str(),Arg::PositiveReal,usageMessages.at(CPSOOM).c_str()},
+    {CPSRATE,0,"",longOptionNames.at(CPSRATE).c_str(),Arg::NonZeroProportion,usageMessages.at(CPSRATE).c_str()},
+    {CSVALPHA,0,"",longOptionNames.at(CSVALPHA).c_str(),Arg::NonZeroProportion,usageMessages.at(CSVALPHA).c_str()},
+    {CSVAHORIZ,0,"",longOptionNames.at(CSVAHORIZ).c_str(),Arg::Natural,usageMessages.at(CSVAHORIZ).c_str()},
+    {CSVREHORIZ,0,"",longOptionNames.at(CSVREHORIZ).c_str(),Arg::Natural,usageMessages.at(CSVREHORIZ).c_str()},
+    {CSVN,0,"",longOptionNames.at(CSVN).c_str(),Arg::Natural,usageMessages.at(CSVN).c_str()},
+    {MEERROR,0, "",longOptionNames.at(MEERROR).c_str(),Arg::PositiveReal, usageMessages.at(MEERROR).c_str()},
+    {MGEPROP,0,"",longOptionNames.at(MGEPROP).c_str(),Arg::NonNegativeReal, usageMessages.at(MGEPROP).c_str()},
+    {MGSMULT,0,"",longOptionNames.at(MGSMULT).c_str(),Arg::NonNegativeReal, usageMessages.at(MGSMULT).c_str()},
+    {MGSTOL,0,"",longOptionNames.at(MGSTOL).c_str(),Arg::NonNegativeReal, usageMessages.at(MGSTOL).c_str()},
+    {THORIZON,0,"",longOptionNames.at(THORIZON).c_str(),Arg::Natural,usageMessages.at(THORIZON).c_str()},
+    {TINIT,0,"",longOptionNames.at(TINIT).c_str(),Arg::PositiveReal,usageMessages.at(TINIT).c_str()},
+    {TRATE,0,"",longOptionNames.at(TRATE).c_str(),Arg::NonZeroProportion,usageMessages.at(TRATE).c_str()},
+    {UNKNOWN,0, "","",option::Arg::None, "\tNote: Horizons should ideally be co-prime from eachother to minimize synchronized updates"},
     {UNKNOWN,0, "","",option::Arg::None, "===GENERAL OPTIONS"},
-    {NTHREADS,0, "j","threads",Arg::Natural,"[1] --threads, -j [1,∞)εZ \t The maximum number of threads to use"},
-    {RESUME,0,"r","resume-from",Arg::String,"--resume-from, -r path \tA results file from a previous run, will resume with the number of accepted samples from the file; All chains will start from the same point. Adaptive scaling parameters will be reset."},
-    {SEED, 0, "", "seed", Arg::Natural, "[none] --seed [1,∞)εZ \tA seed for the random number generator"},
-    {HELP, 0, "h", "help", option::Arg::None, " --help, -h \tPrint usage and exit"},
-    {QUIET, 0, "q", "quiet", option::Arg::None, " --quiet, -q \tDecrement the level of verbosity."},
-    {VERBOSITY, 0, "v", "verbose", option::Arg::None, " --verbose, -v \tIncrement the level of verbosity."},
+    {NTHREADS,0, "j",longOptionNames.at(NTHREADS).c_str(),Arg::Natural,usageMessages.at(NTHREADS).c_str()},
+    {RESUME,0,"r",longOptionNames.at(RESUME).c_str(),Arg::String,usageMessages.at(RESUME).c_str()},
+    {SEED, 0, "",longOptionNames.at(SEED).c_str(), Arg::Natural,usageMessages.at(SEED).c_str()},
+    {HELP, 0, "h",longOptionNames.at(HELP).c_str(), option::Arg::None,usageMessages.at(HELP).c_str()},
+    {QUIET, 0, "q",longOptionNames.at(QUIET).c_str(), option::Arg::None,usageMessages.at(QUIET).c_str()},
+    {VERBOSITY, 0, "v",longOptionNames.at(VERBOSITY).c_str(), option::Arg::None,usageMessages.at(VERBOSITY).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "\tNote: Default level 2: errors and warnings"},
     {0,0,0,0,0,0}
 };
@@ -198,15 +250,7 @@ Opts ParseOptions(int argc, char ** argv){
     option::Parser parse(usage, argc, argv, options, buffer);
 
     Opts opts;
-    opts.burnin = 100;
-    opts.sampleSize = 1000;
-    opts.simSize = 200;
-    opts.nChains = 1;
-    opts.nThreads = 1;
-    opts.seed = (long unsigned int)std::time(0);
-    opts.tgtSwpRate = 0.5;
-    opts.tempHorizon = 50;
-    opts.initTempInc = 0.1;
+    
 
     if(parse.error())
         exit(EXIT_FAILURE);
@@ -231,11 +275,15 @@ Opts ParseOptions(int argc, char ** argv){
     double cpsOoM = chain::CChain::GetPSOoM();
     double cpsRate = chain::CChain::GetPSRate();
     double csvAlpha = chain::CChain::GetSimVarAlpha();
+    double csvAlphaHorizon = chain::CChain::GetSimVarAlphaHorizon();
     double csvN = chain::CChain::GetSimVarN();
+    double csvReEvalHorizon = chain::CChain::GetSimVarReEvalHorizon();
     double meErr = model::CModel::GetEvalRelError();
     double mgeProp = model::CModel::GetGEStepProp();
     double mgsMult = model::CModel::GetGSMult();
     double mgsTol = model::CModel::GetGSTolProp();
+
+    std::string bEnableGradDescentStr = "FALSE";
 
     for(int i = 0; i < parse.optionsCount(); ++i){
         option::Option& opt = buffer[i];
@@ -244,7 +292,8 @@ Opts ParseOptions(int argc, char ** argv){
                 opts.burnin = atoi(opt.arg);
                 break;
             case CGDISABLE:
-                chain::CChain::DisableGradientDescent();
+                chain::CChain::ToggleGradientDescent();
+                bEnableGradDescentStr = "TRUE";
                 break;
             case CPSHORIZON:
                 cpsHorizon = atoi(opt.arg);
@@ -261,12 +310,18 @@ Opts ParseOptions(int argc, char ** argv){
             case CSVALPHA:
                 csvAlpha = atof(opt.arg);
                 break;
+            case CSVAHORIZ:
+                csvAlphaHorizon = atoi(opt.arg);
+                break;
             case CSVN:
                 csvN = atoi(opt.arg);
                 if(csvN < 2){
                     logger::Log("The simulation variablity handling N value has been reset to its minmum value of 2",logger::WARNING);
                     csvN = 2;
                 }
+               break;
+            case CSVREHORIZ:
+               csvReEvalHorizon = atoi(opt.arg);
                break;
             case MEERROR:
                meErr = atof(opt.arg);
@@ -328,11 +383,43 @@ Opts ParseOptions(int argc, char ** argv){
     }
 
     chain::CChain::TunePS(cpsHorizon,cpsInit,cpsOoM,cpsRate);
-    chain::CChain::TuneSimVar(csvAlpha,csvN);
+    chain::CChain::TuneSimVar(csvAlpha,csvAlphaHorizon,csvN,csvReEvalHorizon);
     model::CModel::TuneEvaluation(meErr);
     model::CModel::TuneGradientEstimation(mgeProp);
     model::CModel::TuneGoldenSearch(mgsMult,mgsTol);
 
+    std::stringstream message;
+    message << "\t" << longOptionNames.at(OBSFILE) << ":\t" << opts.obs << "\n";
+    message << "\t" << longOptionNames.at(PRIORFILE) << ":\t" << opts.prior << "\n";
+    message << "\t" << longOptionNames.at(TREEFILE) << ":\t" << opts.tree << "\n";
+    message << "\t" << longOptionNames.at(BURNIN) << ":\t" << opts.burnin << "\n";
+    message << "\t" << longOptionNames.at(NCHAINS) << ":\t" << opts.nChains << "\n";
+    message << "\t" << longOptionNames.at(SAMPLESIZE) << ":\t" << opts.sampleSize << "\n";
+    message << "\t" << longOptionNames.at(SIMSIZE) << ":\t" << opts.simSize << "\n";
+    message << "\t" << longOptionNames.at(CGDISABLE) << ":\t" << bEnableGradDescentStr << "\n";
+    message << "\t" << longOptionNames.at(CPSHORIZON) << ":\t" << cpsHorizon << "\n";
+    message << "\t" << longOptionNames.at(CPSINIT) << ":\t" << cpsInit << "\n";
+    message << "\t" << longOptionNames.at(CPSOOM) << ":\t" << cpsOoM << "\n";
+    message << "\t" << longOptionNames.at(CPSRATE) << ":\t" << cpsRate << "\n";
+    message << "\t" << longOptionNames.at(CSVALPHA) << ":\t" << csvAlpha << "\n";
+    message << "\t" << longOptionNames.at(CSVAHORIZ) << ":\t" << csvAlphaHorizon << "\n";
+    message << "\t" << longOptionNames.at(CSVREHORIZ) << ":\t" << csvReEvalHorizon << "\n";
+    message << "\t" << longOptionNames.at(CSVN) << ":\t" << csvN << "\n";
+    message << "\t" << longOptionNames.at(MEERROR) << ":\t" << meErr << "\n";
+    if(bEnableGradDescentStr == "TRUE"){
+        message << "\t" << longOptionNames.at(MGEPROP) << ":\t" << mgeProp << "\n";
+        message << "\t" << longOptionNames.at(MGSMULT) << ":\t" << mgsMult << "\n";
+        message << "\t" << longOptionNames.at(MGSTOL) << ":\t" << mgsTol << "\n";
+    }
+    message << "\t" << longOptionNames.at(THORIZON) << ":\t" << opts.tempHorizon << "\n";
+    message << "\t" << longOptionNames.at(TINIT) << ":\t" << opts.initTempInc << "\n";
+    message << "\t" << longOptionNames.at(TRATE) << ":\t" << opts.tgtSwpRate << "\n";
+    message << "\t" << longOptionNames.at(NTHREADS) << ":\t" << opts.nThreads << "\n";
+    message << "\t" << longOptionNames.at(SEED) << ":\t" << opts.seed << "\n";
+    if(!opts.resume.empty()){
+        message << "\t" << longOptionNames.at(RESUME) << ":\t" << opts.resume << "\n";
+    }
+    logger::Log("===Parameters\n%s",logger::INFO,message.str().c_str());
     return opts;
 }
 

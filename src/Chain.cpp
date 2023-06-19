@@ -7,12 +7,13 @@ namespace chain {
 
 //#### Static Members #####
 
-    size_t CChain::AcceptScaleHorizon = 25;
-    size_t CChain::AcceptAlphaHorizon = 26;
-    bool CChain::BGradientDescent = true;
+    size_t CChain::AcceptScaleHorizon = 23;
+    size_t CChain::AcceptAlphaHorizon = 51;
+    bool CChain::BGradientDescent = false;
     double CChain::InitialProposalScale = 1.0;
     double CChain::InitialSimulationAlpha = 0.10;
     double CChain::MaximumProposalScaleOoM = 9.0;
+    size_t CChain::SimulationVarianceEstimateHorizon = 101;
     size_t CChain::SimulationVarianceEstimationN = 10;
     //See Mylène Bédard (2008) 10.1016/j.spa.2007.12.005
     //  for aguments why we shouldn't pick this and the real reference for it
@@ -23,7 +24,7 @@ namespace chain {
     CChain::CChain(int id, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nThreads, size_t nSim):
         id(id), prior(std::cref(prior)), tree(std::cref(tree)),
         obs(std::cref(obs)), gen(seed), threadPool(nThreads),
-        nSim(nSim), 
+        nSim(nSim),iteration(0),
         adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
                 CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
     {
@@ -37,20 +38,13 @@ namespace chain {
             stream << *(this->model) << "\n";
             logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
         }
-        std::vector<double> vEvaluationResults;
-        for(int i = 0; i < CChain::SimulationVarianceEstimationN; i++){
-            this->doEvaluation(this->model.get());
-            vEvaluationResults.push_back(model->getNLogP());
-        }
-        this->lastEval = stats::GetMean(vEvaluationResults);
-        this->evaluationSD = stats::GetStandardDeviation(vEvaluationResults,this->lastEval);
-        logger::Log("Chain %d) Estimated std evaluation error: %0.04f",logger::INFO,id,this->evaluationSD);
+        this->estimateSimulationVariance(); 
     }
 
     CChain::CChain(int id, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nThreads, size_t nSim, std::string modelStr):
         id(id), prior(std::cref(prior)), tree(std::cref(tree)),
         obs(std::cref(obs)), gen(seed), threadPool(nThreads),
-        nSim(nSim),
+        nSim(nSim),iteration(0),
         adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
                 CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
     {
@@ -65,14 +59,7 @@ namespace chain {
             stream << *(this->model) << "\n";
             logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
         }
-        std::vector<double> vEvaluationResults;
-        for(int i = 0; i < CChain::SimulationVarianceEstimationN; i++){
-            this->doEvaluation(this->model.get());
-            vEvaluationResults.push_back(model->getNLogP());
-        }
-        this->lastEval = stats::GetMean(vEvaluationResults);
-        this->evaluationSD = stats::GetStandardDeviation(vEvaluationResults,this->lastEval);
-        logger::Log("Chain %d) Estimated std evaluation error: %0.04f",logger::INFO,id,this->evaluationSD);
+        this->estimateSimulationVariance(); 
     }
 
     CChain::~CChain(){
@@ -101,33 +88,27 @@ namespace chain {
             throw std::invalid_argument("Attempt to tune CChain proposal scaling with a target acceptance rate outside the bounds of (0,1]");
         }
         CChain::AcceptScaleHorizon = horizon;
-        CChain::AcceptAlphaHorizon = horizon;
-        size_t gcd = 1;
-        do{
-            CChain::AcceptAlphaHorizon++;
-            size_t a(CChain::AcceptScaleHorizon), b(CChain::AcceptAlphaHorizon);
-            while( a != 0 && b != 0){
-                if(a > b){
-                    a %= b;
-                } else {
-                    b %= a;
-                }
-            }
-            gcd = std::max(a,b);
-        } while(gcd > 1);
         CChain::InitialProposalScale = init;
         CChain::MaximumProposalScaleOoM = oom;
         CChain::TargetAcceptRate = rate;
     }
 
-    void CChain::TuneSimVar(double alpha, size_t n){
+    void CChain::TuneSimVar(double alpha, size_t alphaHorizon, size_t n, size_t reEvalHorizon){
         if(alpha <= 0 || alpha > 1.0){
             throw std::invalid_argument("Attempt to tune CChain simulation variance handling with an initial alpha paramter outside of (0,1]");
+        }
+        if(alphaHorizon < 1){
+            throw std::invalid_argument("Attempt to tune CChain simulation variance handling with an non-positive alpha update horizon");
+        }
+        if(reEvalHorizon < 1){
+            throw std::invalid_argument("Attempt to tune CChain simulation variance handling with an non-positive variance reevaluation horizon");
         }
         if(n < 2){
             throw std::invalid_argument("Attempt to tune CChain simulation variance handling with insufficient runs to estimate variance");
         }
         CChain::InitialSimulationAlpha = alpha;
+        CChain::AcceptAlphaHorizon = alphaHorizon;
+        CChain::SimulationVarianceEstimateHorizon = reEvalHorizon;
         CChain::SimulationVarianceEstimationN = n;
     }
 
@@ -169,12 +150,27 @@ namespace chain {
         return accept;
     }
 
-    void CChain::doEvaluation(model::CModel * model){
+    void CChain::doEvaluation(model::CModel * model, bool bQuiet){
         model->evaluate(this->tree,this->obs,this->threadPool,this->gen,this->nSim);
-        logger::Log("Chain %d) evaluated at %0.04f |OoM|",logger::INFO,this->id,model->getNLogP());
+        logger::Log("Chain %d) evaluated at %0.04f |OoM|",logger::INFO+bQuiet,this->id,model->getNLogP());
+    }
+
+    double CChain::estimateSimulationVariance(){
+        std::vector<double> vEvaluationResults;
+        for(int i = 0; i < CChain::SimulationVarianceEstimationN; i++){
+            this->doEvaluation(this->model.get(),true);
+            vEvaluationResults.push_back(model->getNLogP());
+        }
+        this->lastEval = stats::GetMean(vEvaluationResults);
+        this->evaluationSD = stats::GetStandardDeviation(vEvaluationResults,this->lastEval);
+        logger::Log("Chain %d) Estimated std evaluation error: %0.04f",logger::INFO,id,this->evaluationSD);
+        return this->evaluationSD;
     }
 
     bool CChain::iterate(int threadId, std::unordered_set<std::string> paramNameSet, double temperature){
+        if(++(this->iteration) % CChain::SimulationVarianceEstimateHorizon == 0){
+            this->estimateSimulationVariance();
+        }
         model::ProposalScaleMap scaleMap;
         logger::Log("Chain %d) proposing from %0.04f |OoM| with %d sims",logger::INFO,this->id,this->model->getNLogP(),this->nSim);
         //Pull out the relevant scales for proposals

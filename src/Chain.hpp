@@ -32,6 +32,7 @@ namespace chain {
             std::mt19937 gen;
             double lastEval;
             size_t nSim;
+            size_t iteration;
             std::unique_ptr<model::CModel> model;
             std::reference_wrapper<const model::StateMap> obs;
             std::reference_wrapper<const prior::CPrior> prior;
@@ -46,18 +47,22 @@ namespace chain {
             static double InitialSimulationAlpha;
             static double MaximumProposalScaleOoM;
             static size_t SimulationVarianceEstimationN;
+            static size_t SimulationVarianceEstimateHorizon;
             static double TargetAcceptRate;
         //Static Methods
         public:
-            static void DisableGradientDescent() {CChain::BGradientDescent = false;}
+            static bool GetGradientDescentState() {return CChain::BGradientDescent;}
             static size_t GetPSHorizon() {return CChain::AcceptScaleHorizon;}
             static double GetPSInit() {return CChain::InitialProposalScale;}
             static double GetPSOoM() {return CChain::MaximumProposalScaleOoM;}
             static double GetPSRate() {return CChain::TargetAcceptRate;}
             static double GetSimVarAlpha() {return CChain::InitialSimulationAlpha;}
+            static size_t GetSimVarAlphaHorizon() {return CChain::AcceptAlphaHorizon;}
             static size_t GetSimVarN() {return CChain::SimulationVarianceEstimationN;}
+            static size_t GetSimVarReEvalHorizon() {return CChain::SimulationVarianceEstimateHorizon;}
+            static void ToggleGradientDescent() {CChain::BGradientDescent = !CChain::BGradientDescent;}
             static void TunePS(size_t horizon, double init, double oom, double rate);
-            static void TuneSimVar(double alpha, size_t n);
+            static void TuneSimVar(double alpha, size_t alphaHorizon, size_t n, size_t reEvalHorizon);
         //Methods
         public:
             const model::CModel & getModel() const {return *(this->model);}
@@ -67,7 +72,8 @@ namespace chain {
             void swapModel(CChain & other);
         protected:
             double calcAcceptanceRatio(const model::CModel & m2, double temperature);
-            void doEvaluation(model::CModel * model);
+            void doEvaluation(model::CModel * model,bool bQuiet = false);
+            double estimateSimulationVariance();
     };
 
 };
