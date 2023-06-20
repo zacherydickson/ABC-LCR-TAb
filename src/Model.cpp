@@ -781,22 +781,16 @@ namespace model{
             int abundance = stats::DiscreteTruncatedNormalQuantile(
                     stats::generate_open_canonical(gen),
                     meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
-            if(abundance < 0){
-                fprintf(stderr,"LOOK HERE: %0.04f + %d * (1-%0.0f) * %0.04f\n",pTerm,root.value.vAbundance[protIdx],selCoef,tauTerm);
-            }
             node.value.vAbundance.push_back(abundance);
             //Sample the Length
             double afc = (1.0+parent.value.vAbundance[protIdx]) / (1.0+root.value.vAbundance[protIdx]);
             double upsilonTerm = std::exp(afc * this->parameters.at("upsilon").value);
             double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
-            fprintf(stderr,"enter %0.04f * exp((1+%d)/(1+%d) *%0.04f)\n",lambdaTerm,parent.value.vAbundance[protIdx],root.value.vAbundance[protIdx],this->parameters.at("upsilon").value);
             lambdaTerm *= upsilonTerm;
             double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
             kappaTerm *= upsilonTerm;
             int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
-            fprintf(stderr,"exit1\n");
             int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
-            fprintf(stderr,"exit2\n");
             int length = parent.value.vLength[protIdx] + nIns - nDel;
             length = (length > 0) ? length : 0;
             double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
