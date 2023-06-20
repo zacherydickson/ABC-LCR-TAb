@@ -667,8 +667,6 @@ namespace model{
     }
 
     size_t COUStepwiseModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
-        throw std::logic_error("Not yet implemented");
-        return 0;
         //Object to keep track of the counts across tips, proteins, and data types
         size_t nProt = 0;
         int abundance = evalBlock[0].get().abundance.getMode();
@@ -685,7 +683,50 @@ namespace model{
     }
 
     void COUStepwiseModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
-        throw std::logic_error("Not yet implemented");
+        //Sample the abundance
+        double selCoef = this->parameters.at("delta").value*time;
+        double pTerm = parent.value.vAbundance[0]*selCoef;
+        double rTerm = root.value.vAbundance[0]*(1-selCoef);
+        double meanAb = pTerm + rTerm;
+        double driftCoef = this->parameters.at("sigma").value*time;
+        int abundance = stats::DiscreteTruncatedNormalQuantile(
+                    stats::generate_open_canonical(gen),
+                    meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
+        for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
+            node.value.vAbundance.push_back(abundance);
+            //Sample the Length Based on the branch length and the parent value
+            double fcRoot = (1 + node.value.vAbundance[protIdx]) / (1+ root.value.vAbundance[protIdx]);
+            double upsilonTerm = std::exp(fcRoot * this->parameters.at("upsilon").value);
+            double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
+            lambdaTerm *= upsilonTerm;
+            double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
+            kappaTerm *= kappaTerm;
+            int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
+            int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
+            int length = parent.value.vLength[protIdx] + nIns - nDel;
+            length = (length > 0) ? length : 0;
+            double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
+            if(mutRate > 0.0){
+                int nMut = stats::PoissonQuantile(stats::generate_open_canonical(gen),mutRate);
+                if(nMut > 0){
+                    double sum = 0;
+                    double max = -1;
+                    //Generate n+1 random exponentials with mean 1, the length of the longest chunk uf lcr 
+                    //after n mutations, is the proportion of the max exponentila to the sum
+                    for(int i = 0; i < nMut+1; i++){
+                        double x = stats::ExponentialQuantile(stats::generate_open_canonical(gen),1.0);
+                        sum += x;
+                        if(x > max){
+                            max = x;
+                        }
+                    }
+                    double prop = max / sum; 
+                    length = int(std::round(prop * length));
+                }
+            }
+            node.value.vLength.push_back(length);
+        }
+        
     }
 
 }
