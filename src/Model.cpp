@@ -771,7 +771,7 @@ namespace model{
     void CUnifiedStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
         for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
             //Sample the abundance
-            double selCoef = this->parameters.at("delta").value*time;
+            double selCoef = std::exp(-this->parameters.at("delta").value*time);
             double pTerm = parent.value.vAbundance[protIdx]*selCoef;
             double rTerm = root.value.vAbundance[protIdx]*(1.0-selCoef);
             double lfc = (parent.value.vLength[protIdx]+1.0) / (root.value.vLength[protIdx] + 1.0);
