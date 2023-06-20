@@ -27,12 +27,17 @@ namespace model{
     //OUStepwise
     const std::string COUStepwiseModel::modelName = "OUStepwise";
     const std::vector<std::string> COUStepwiseModel::parameterNames = {"delta","kappa","lambda","sigma","upsilon","muOoM"};
+    //UnifiedStepwiseOU
+    const std::string CUnifiedStepwiseOUModel::modelName = "UnifiedStepwiseOU";
+    const std::vector<std::string> CUnifiedStepwiseOUModel::parameterNames = {"delta","kappa","lambda","sigma","tau","upsilon","muOoM"};
 
     ModelType str2ModelType(std::string str){
         if(str == "StepwiseOU"){
             return StepwiseOU;
         } else if(str == "OUStepwise"){
             return OUStepwise;
+        } else if(str == "UnifiedStepwiseOU"){
+            return UnifiedStepwiseOU;
         } else {
             throw std::invalid_argument("Attempt to enumerate unrecognized model type");
         }
@@ -82,6 +87,22 @@ namespace model{
         }
         if(this->parameters.size() > COUStepwiseModel::parameterNames.size()){
             throw std::invalid_argument("Attempt to construct COUStepwiseModel with unrecognized parameters");
+        }
+        this->determineEvaluationBlocks();
+    }
+
+    //CUnifiedStepwiseOUModel
+    CUnifiedStepwiseOUModel::CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity):
+        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity)
+    {
+        //Validate params
+        for(const std::string & name : CUnifiedStepwiseOUModel::parameterNames){
+            if(this->parameters.count(name) == 0){
+                throw std::invalid_argument("Attempt to construct CUnifiedStepwiseOUModel without all required parameters");
+            }
+        }
+        if(this->parameters.size() > CUnifiedStepwiseOUModel::parameterNames.size()){
+            throw std::invalid_argument("Attempt to construct CUnifiedStepwiseOUModel with unrecognized parameters");
         }
         this->determineEvaluationBlocks();
     }
@@ -391,7 +412,7 @@ namespace model{
             auto it2 = vIdxs.begin()+(i+1);
             //Check if prot[idx[i]]'s length is equal to the subsequent state's length
             if(this->evalIsEqual(*it1,*it2)){
-            //if(this->vInitStates[*it1].abundance == this->vInitStates[*it2].abundance){
+            //if(this->vInitStates[*it1].abundance == this->vInitStates[*it2].abundance)
                 //Add the next protein to the current block
                 curBlock.push_back(std::ref(this->vInitStates[*it2]));
                 vIdxs.erase(it2); //Stop considering this protein
@@ -695,12 +716,12 @@ namespace model{
         for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
             node.value.vAbundance.push_back(abundance);
             //Sample the Length Based on the branch length and the parent value
-            double fcRoot = (1 + node.value.vAbundance[protIdx]) / (1+ root.value.vAbundance[protIdx]);
+            double fcRoot = (1.0 + node.value.vAbundance[protIdx]) / (1.0+ root.value.vAbundance[protIdx]);
             double upsilonTerm = std::exp(fcRoot * this->parameters.at("upsilon").value);
             double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
             lambdaTerm *= upsilonTerm;
             double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
-            kappaTerm *= kappaTerm;
+            kappaTerm *= upsilonTerm;
             int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
             int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
             int length = parent.value.vLength[protIdx] + nIns - nDel;
@@ -726,7 +747,73 @@ namespace model{
             }
             node.value.vLength.push_back(length);
         }
-        
     }
 
-}
+//CUnifiedStepwiseOUModel -- overridden, private
+    
+    std::unique_ptr<CModel> CUnifiedStepwiseOUModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const{
+        return std::unique_ptr<CModel>(new CUnifiedStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio));
+    }
+
+    size_t CUnifiedStepwiseOUModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
+        //Object to keep track of the counts across tips, proteins, and data types
+        size_t nProt = 0;
+        for(const auto & state : evalBlock){
+            int length = state.get().length.getMode();
+            int abundance = state.get().abundance.getMode();
+            rootNode.value.vLength.push_back(length);
+            rootNode.value.vAbundance.push_back(abundance);
+            nProt += state.get().vProtIdxs.size();
+        }
+        return nProt;
+    }
+
+    void CUnifiedStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
+        for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
+            //Sample the abundance
+            double selCoef = std::exp(-this->parameters.at("delta").value*time);
+            double pTerm = parent.value.vAbundance[protIdx]*selCoef;
+            double rTerm = root.value.vAbundance[protIdx]*(1.0-selCoef);
+            double lfc = (parent.value.vLength[protIdx]+1.0) / (root.value.vLength[protIdx] + 1.0);
+            double tauTerm = std::exp(this->parameters.at("tau").value * lfc);
+            double meanAb = pTerm + rTerm * tauTerm;
+            double driftCoef = this->parameters.at("sigma").value*time;
+            int abundance = stats::DiscreteTruncatedNormalQuantile(
+                    stats::generate_open_canonical(gen),
+                    meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
+            node.value.vAbundance.push_back(abundance);
+            //Sample the Length
+            double afc = (1.0+parent.value.vAbundance[protIdx]) / (1.0+root.value.vAbundance[protIdx]);
+            double upsilonTerm = std::exp(afc * this->parameters.at("upsilon").value);
+            double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
+            lambdaTerm *= upsilonTerm;
+            double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
+            kappaTerm *= upsilonTerm;
+            int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
+            int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
+            int length = parent.value.vLength[protIdx] + nIns - nDel;
+            length = (length > 0) ? length : 0;
+            double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
+            if(mutRate > 0.0){
+                int nMut = stats::PoissonQuantile(stats::generate_open_canonical(gen),mutRate);
+                if(nMut > 0){
+                    double sum = 0;
+                    double max = -1;
+                    //Generate n+1 random exponentials with mean 1, the length of the longest chunk uf lcr 
+                    //after n mutations, is the proportion of the max exponentila to the sum
+                    for(int i = 0; i < nMut+1; i++){
+                        double x = stats::ExponentialQuantile(stats::generate_open_canonical(gen),1.0);
+                        sum += x;
+                        if(x > max){
+                            max = x;
+                        }
+                    }
+                    double prop = max / sum; 
+                    length = int(std::round(prop * length));
+                }
+            }
+            node.value.vLength.push_back(length);
+        }
+    } //sampleSimulationNode
+
+} // model namespace
