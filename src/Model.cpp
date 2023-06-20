@@ -645,7 +645,7 @@ namespace model{
             //  To have consistent polymorphism, we'll waste the memory and repeat it for
             //  each evalBlock
             node.value.vLength.push_back(length);
-            double selCoef = this->parameters.at("delta").value*time;
+            double selCoef = std::exp(-this->parameters.at("delta").value*time);
             double pTerm = parent.value.vAbundance[protIdx]*selCoef;
             int lDiff = (node.value.vLength[protIdx] - root.value.vLength[protIdx]);
             double lTerm = this->parameters.at("tau").value * lDiff;
@@ -684,7 +684,7 @@ namespace model{
 
     void COUStepwiseModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
         //Sample the abundance
-        double selCoef = this->parameters.at("delta").value*time;
+        double selCoef = std::exp(-this->parameters.at("delta").value*time);
         double pTerm = parent.value.vAbundance[0]*selCoef;
         double rTerm = root.value.vAbundance[0]*(1-selCoef);
         double meanAb = pTerm + rTerm;
