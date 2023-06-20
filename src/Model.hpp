@@ -14,7 +14,7 @@
 
 namespace model {
 
-    enum ModelType {StepwiseOU,OUStepwise};
+    enum ModelType {StepwiseOU,OUStepwise,UnifiedStepwiseOU};
     ModelType str2ModelType(std::string str);
 
     struct SParameterSpecification{
@@ -170,7 +170,10 @@ namespace model {
         //  Length Evol Is modeled as a stepwise process where the rate of indels increases
         //  linearly with length, over a time period t there are poisson distribtued events
         //  each with a probability of being an insertion or deletion
-        //      
+        //  Abundance Evol is modeled as an OU process where the mena value at a node is a
+        //  weighted average of the parent value and the selective optimum
+        //  The Selective Optimum is influenced by the length of the minimum entropy region
+        //  at the current node
         //Con-/Destruction
         public:
             CStepwiseOUModel() = delete;
@@ -196,10 +199,13 @@ namespace model {
 
     class COUStepwiseModel : public CModel {
         //Description:
+        //  Abundance Evol is modeled as an OU process where the mena value at a node is a
+        //  weighted average of the parent value and the selective optimum
         //  Length Evol Is modeled as a stepwise process where the rate of indels increases
         //  linearly with length, over a time period t there are poisson distribtued events
         //  each with a probability of being an insertion or deletion
-        //      
+        //  The mean number of indels is influenced by the fold change in abundance at the
+        //  current node relative to the root
         //Con-/Destruction
         public:
             COUStepwiseModel() = delete;
@@ -219,6 +225,39 @@ namespace model {
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
             virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a].abundance < this->vInitStates[b].abundance;}
             virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a].abundance == this->vInitStates[b].abundance;}
+            size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
+            void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
+    };
+
+    class CUnifiedStepwiseOUModel : public CModel {
+        //Description:
+        //  Abundance Evol is modeled as an OU process where the mean value at a node is a
+        //  weighted average of the parent value and the selective optimum
+        //  The Selective Optimum is influenced by the length of the minimum entropy region
+        //  at the parent node
+        //  Length Evol Is modeled as a stepwise process where the rate of indels increases
+        //  linearly with length, over a time period t there are poisson distribtued events
+        //  each with a probability of being an insertion or deletion
+        //  The mean number of indels is influenced by the fold change in abundance at the
+        //  parent node
+        public:
+            CUnifiedStepwiseOUModel() = delete;
+            CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1);
+        //Static Members
+        private:
+            static const std::string modelName;
+            static const std::vector<std::string> parameterNames;
+        //Methods
+        private:
+        //Overridden Methods
+        public:
+            const std::string & getName() const override {return this->modelName;}
+            const size_t getNParams() const override {return this->parameterNames.size();}
+            const std::vector<std::string> & getParamNames() const override {return this->parameterNames;}
+        private:
+            std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
+            virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a] < this->vInitStates[b];}
+            virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a] == this->vInitStates[b];}
             size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
     };

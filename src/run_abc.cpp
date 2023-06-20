@@ -735,6 +735,7 @@ int main(int argc, char ** argv){
         acceptCount += ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume);
     }
 
+
     int iteration = 0;
     const std::vector<std::string> & vParamNames = vChains[0]->getModel().getParamNames();
     const size_t nParams = vParamNames.size();
