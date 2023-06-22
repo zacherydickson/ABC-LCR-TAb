@@ -23,13 +23,13 @@ namespace model{
     const std::vector<std::string> CModel::parameterNames = std::vector<std::string>();
     //StepwiseOU
     const std::string CStepwiseOUModel::modelName = "StepwiseOU";
-    const std::vector<std::string> CStepwiseOUModel::parameterNames = {"delta","kappa","lambda","sigma","tau","muOoM"};
+    const std::vector<std::string> CStepwiseOUModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","tau"};
     //OUStepwise
     const std::string COUStepwiseModel::modelName = "OUStepwise";
-    const std::vector<std::string> COUStepwiseModel::parameterNames = {"delta","kappa","lambda","sigma","upsilon","muOoM"};
+    const std::vector<std::string> COUStepwiseModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","upsilon"};
     //UnifiedStepwiseOU
     const std::string CUnifiedStepwiseOUModel::modelName = "UnifiedStepwiseOU";
-    const std::vector<std::string> CUnifiedStepwiseOUModel::parameterNames = {"delta","kappa","lambda","sigma","tau","upsilon","muOoM"};
+    const std::vector<std::string> CUnifiedStepwiseOUModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","tau","upsilon"};
 
     ModelType str2ModelType(std::string str){
         if(str == "StepwiseOU"){

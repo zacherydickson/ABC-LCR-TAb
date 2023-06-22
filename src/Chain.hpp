@@ -43,7 +43,7 @@ namespace chain {
             static size_t AcceptScaleHorizon;
             static size_t AcceptAlphaHorizon;
             static bool BGradientDescent;
-            static double InitialProposalScale;
+            static std::vector<double> vInitialProposalScales;
             static double InitialSimulationAlpha;
             static double MaximumProposalScaleOoM;
             static size_t SimulationVarianceEstimationN;
@@ -53,7 +53,7 @@ namespace chain {
         public:
             static bool GetGradientDescentState() {return CChain::BGradientDescent;}
             static size_t GetPSHorizon() {return CChain::AcceptScaleHorizon;}
-            static double GetPSInit() {return CChain::InitialProposalScale;}
+            static const std::vector<double> & GetPSInit() {return CChain::vInitialProposalScales;}
             static double GetPSOoM() {return CChain::MaximumProposalScaleOoM;}
             static double GetPSRate() {return CChain::TargetAcceptRate;}
             static double GetSimVarAlpha() {return CChain::InitialSimulationAlpha;}
@@ -61,7 +61,7 @@ namespace chain {
             static size_t GetSimVarN() {return CChain::SimulationVarianceEstimationN;}
             static size_t GetSimVarReEvalHorizon() {return CChain::SimulationVarianceEstimateHorizon;}
             static void ToggleGradientDescent() {CChain::BGradientDescent = !CChain::BGradientDescent;}
-            static void TunePS(size_t horizon, double init, double oom, double rate);
+            static void TunePS(size_t horizon, const std::vector<double> & vInit, double oom, double rate);
             static void TuneSimVar(double alpha, size_t alphaHorizon, size_t n, size_t reEvalHorizon);
         //Methods
         public:
@@ -72,6 +72,7 @@ namespace chain {
             void swapModel(CChain & other);
         protected:
             double calcAcceptanceRatio(const model::CModel & m2, double temperature);
+            void constructAdaptiveScales(); 
             void doEvaluation(model::CModel * model,bool bQuiet = false);
             double estimateSimulationVariance();
     };

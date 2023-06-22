@@ -10,7 +10,7 @@ namespace chain {
     size_t CChain::AcceptScaleHorizon = 23;
     size_t CChain::AcceptAlphaHorizon = 51;
     bool CChain::BGradientDescent = false;
-    double CChain::InitialProposalScale = 1.0;
+    std::vector<double> CChain::vInitialProposalScales = {1.0};
     double CChain::InitialSimulationAlpha = 0.10;
     double CChain::MaximumProposalScaleOoM = 9.0;
     size_t CChain::SimulationVarianceEstimateHorizon = 101;
@@ -30,36 +30,30 @@ namespace chain {
     {
         logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
         this->model = prior.GenerateModel(this->gen);
-        for(const std::string & name : this->model->getParamNames()){
-            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::InitialProposalScale,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
-        }
-        if(id == 0){
-            std::stringstream stream;
-            stream << *(this->model) << "\n";
-            logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
-        }
-        this->estimateSimulationVariance(); 
+        this->constructAdaptiveScales(); 
+        //if(id == 0){
+        //    std::stringstream stream;
+        //    stream << *(this->model) << "\n";
+        //    logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
+        //}
     }
 
+    
+
     CChain::CChain(int id, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nThreads, size_t nSim, std::string modelStr):
-        id(id), prior(std::cref(prior)), tree(std::cref(tree)),
-        obs(std::cref(obs)), gen(seed), threadPool(nThreads),
-        nSim(nSim),iteration(0),
-        adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
-                CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
+        CChain(id, prior, tree, obs, seed,nThreads, nSim)
+        //id(id), prior(std::cref(prior)), tree(std::cref(tree)),
+        //obs(std::cref(obs)), gen(seed), threadPool(nThreads),
+        //nSim(nSim),iteration(0),
+        //adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
+        //        CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
     {
-        logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
-        this->model = prior.GenerateModel(this->gen);
-        for(const std::string & name : this->model->getParamNames()){
-            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,CChain::InitialProposalScale,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
-        }
         this->model->setToStr(modelStr);
-        if(id == 0){
-            std::stringstream stream;
-            stream << *(this->model) << "\n";
-            logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
-        }
-        this->estimateSimulationVariance(); 
+        //if(id == 0){
+        //    std::stringstream stream;
+        //    stream << *(this->model) << "\n";
+        //    logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
+        //}
     }
 
     CChain::~CChain(){
@@ -72,14 +66,10 @@ namespace chain {
 //#### Static Methods #####
 
     //CChain, public
-
-    void CChain::TunePS(size_t horizon, double init, double oom, double rate){
+    
+    void CChain::TunePS(size_t horizon, const std::vector<double> & vInit, double oom, double rate){
         if(horizon < 1){
             throw std::invalid_argument("Attempt to tune CChain proposal scaling with a non-Natural horizon");
-        }
-        double initOoM = std::abs(std::log10(init));
-        if(initOoM > oom){
-            throw std::invalid_argument("Attempt to tune CChain proposal scaling with an initial scale outside of the provided order of magnitude bounds");
         }
         if(oom <= 0.0){
             throw std::invalid_argument("Attempt to tune CChain proposal scaling with non-positive order of magnitude boundaries");
@@ -87,8 +77,14 @@ namespace chain {
         if(rate <= 0.0 || rate > 1.0){
             throw std::invalid_argument("Attempt to tune CChain proposal scaling with a target acceptance rate outside the bounds of (0,1]");
         }
+        for(double init : vInit){
+            double initOoM = std::log10(init);
+            if(initOoM > oom || initOoM < -oom){
+                throw std::invalid_argument("Attempt to tune CChain proposal scaling with initial scales outside of the order og magnitude boundaries");
+            }
+        }
         CChain::AcceptScaleHorizon = horizon;
-        CChain::InitialProposalScale = init;
+        CChain::vInitialProposalScales = vInit;
         CChain::MaximumProposalScaleOoM = oom;
         CChain::TargetAcceptRate = rate;
     }
@@ -150,6 +146,14 @@ namespace chain {
         return accept;
     }
 
+    void CChain::constructAdaptiveScales(){
+        size_t paramIdx = 0;
+        for(const std::string & name : this->model->getParamNames()){
+            double initScale = CChain::vInitialProposalScales[paramIdx++ % CChain::vInitialProposalScales.size()];
+            adaptiveScaleMap[name] = new aparam::CAdaptiveParameter(CChain::TargetAcceptRate,CChain::AcceptScaleHorizon,initScale,pow(10.0,-CChain::MaximumProposalScaleOoM),pow(10.0,+CChain::MaximumProposalScaleOoM));
+        }
+    }
+
     void CChain::doEvaluation(model::CModel * model, bool bQuiet){
         model->evaluate(this->tree,this->obs,this->threadPool,this->gen,this->nSim);
         logger::Log("Chain %d) evaluated at %0.04f |OoM|",logger::INFO+bQuiet,this->id,model->getNLogP());
@@ -168,7 +172,7 @@ namespace chain {
     }
 
     bool CChain::iterate(int threadId, std::unordered_set<std::string> paramNameSet, double temperature){
-        if(++(this->iteration) % CChain::SimulationVarianceEstimateHorizon == 0){
+        if((this->iteration)++ % CChain::SimulationVarianceEstimateHorizon == 0){
             this->estimateSimulationVariance();
         }
         model::ProposalScaleMap scaleMap;

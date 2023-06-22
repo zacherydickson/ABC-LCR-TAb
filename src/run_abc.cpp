@@ -45,6 +45,45 @@ struct Opts {
 
 enum InputMisMatchCase {VALID, VAR_OBS, PRIOR_OBS, TREE_OBS, MISSING_TIP, NO_OBS};
 
+/*### STRING HANDLING FUNCTIONS #############################################*/
+
+template<typename T>
+std::string join(const std::vector<T> & v, std::string delim = ","/*, std::string mark = std::string(), std::string markIdx = 0;*/){
+    if(v.empty()){
+        return std::string();
+    }
+    std::string out = std::to_string(v[0]);
+    //if(markIdx == 0){
+    //    out = mark + out;
+    //}
+    for(int i = 1;i < v.size(); i++){
+        out += delim;
+        //if(markIdx == i){
+        //    out += mark;
+        //}
+        out += std::to_string(v[i]);
+    }
+    return out;
+}
+
+std::string join(const std::vector<std::string> & v, std::string delim = ","/*, std::string mark = std::string(), std::string markIdx = 0;*/){
+    if(v.empty()){
+        return std::string();
+    }
+    std::string out = v[0];
+    //if(markIdx == 0){
+    //    out = mark + out;
+    //}
+    for(int i = 1;i < v.size(); i++){
+        out += delim;
+        //if(markIdx == i){
+        //    out += mark;
+        //}
+        out += v[i];
+    }
+    return out;
+}
+
 /*### HELP AND USAGE #########################################################*/
 
 enum optionIndex{UNKNOWN,HELP,BURNIN,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
@@ -170,7 +209,7 @@ const std::map<optionIndex,std::string> longOptionNames = {
 const std::map<optionIndex,std::string> usageMessages = {
     {BURNIN,"[" + std::to_string(defaultOpts.burnin) + "] --" + longOptionNames.at(BURNIN) + ", -b [1,∞)εZ \tThe number of accepted parameter sets to initially ignore."},
     {CPSHORIZON,"[" + std::to_string(chain::CChain::GetPSHorizon()) + "] --" + longOptionNames.at(CPSHORIZON) + " [1,∞)εZ \tThe number of iterations between updates to scaling factor for parameter proposals."},
-    {CPSINIT,"[" + std::to_string(chain::CChain::GetPSInit()) + "] --" + longOptionNames.at(CPSINIT) + " (0,∞)εR \tThe inital scale factor for parameter proposals."},
+    {CPSINIT,"[" + join(chain::CChain::GetPSInit()) + "] --" + longOptionNames.at(CPSINIT) + " (0,∞)εR \tThe inital scale factor for parameter proposals. Can be either a single value applied to all parameters or a comma separated list which is recycled as necessary. parameter specific scales are processed in alphabetical order of parameter name"},
     {CPSOOM,"[" + std::to_string(chain::CChain::GetPSOoM()) + "] --" + longOptionNames.at(CPSOOM) + " (0,∞)εR \tThe bounds on the scale factor for parameter proposals in base 10 orders of magnitude."},
     {CPSRATE,"[" + std::to_string(chain::CChain::GetPSRate()) + "] --" + longOptionNames.at(CPSRATE) + " (0,1]εR \t.The target rate of acceptance of parameter proposals"},
     {CGDISABLE," --" + longOptionNames.at(CGDISABLE) + " \tAfter a failed proposal, a local gradient is estimated and then a minimum opposite the gradient is found by golden search, enabling will explore more rapidly, but proposals will occur slower."},
@@ -215,7 +254,7 @@ const option::Descriptor usage [] = {
     {UNKNOWN,0, "","",option::Arg::None, "===TUNING OPTIONS"},
     {CGDISABLE,0,"",longOptionNames.at(CGDISABLE).c_str(),option::Arg::None,usageMessages.at(CGDISABLE).c_str()},
     {CPSHORIZON,0,"",longOptionNames.at(CPSHORIZON).c_str(),Arg::Natural,usageMessages.at(CPSHORIZON).c_str()},
-    {CPSINIT,0,"",longOptionNames.at(CPSINIT).c_str(),Arg::PositiveReal,usageMessages.at(CPSINIT).c_str()},
+    {CPSINIT,0,"",longOptionNames.at(CPSINIT).c_str(),Arg::String,usageMessages.at(CPSINIT).c_str()},
     {CPSOOM,0,"",longOptionNames.at(CPSOOM).c_str(),Arg::PositiveReal,usageMessages.at(CPSOOM).c_str()},
     {CPSRATE,0,"",longOptionNames.at(CPSRATE).c_str(),Arg::NonZeroProportion,usageMessages.at(CPSRATE).c_str()},
     {CSVALPHA,0,"",longOptionNames.at(CSVALPHA).c_str(),Arg::NonZeroProportion,usageMessages.at(CSVALPHA).c_str()},
@@ -271,7 +310,7 @@ Opts ParseOptions(int argc, char ** argv){
         logger::Verbosity -= options[QUIET].count();
 
     size_t cpsHorizon = chain::CChain::GetPSHorizon();
-    double cpsInit = chain::CChain::GetPSInit();
+    std::vector<double> cpsInit(chain::CChain::GetPSInit());
     double cpsOoM = chain::CChain::GetPSOoM();
     double cpsRate = chain::CChain::GetPSRate();
     double csvAlpha = chain::CChain::GetSimVarAlpha();
@@ -287,6 +326,8 @@ Opts ParseOptions(int argc, char ** argv){
 
     for(int i = 0; i < parse.optionsCount(); ++i){
         option::Option& opt = buffer[i];
+        size_t pos = 0;
+        std::string initStr;
         switch(opt.index()){
             case BURNIN:
                 opts.burnin = atoi(opt.arg);
@@ -299,7 +340,13 @@ Opts ParseOptions(int argc, char ** argv){
                 cpsHorizon = atoi(opt.arg);
                 break;
             case CPSINIT:
-                cpsInit = atof(opt.arg);
+                cpsInit.clear();
+                initStr = std::string(opt.arg);
+                while((pos = initStr.find(",")) != std::string::npos){
+                    cpsInit.push_back(std::stod(initStr.substr(0,pos)));
+                    initStr.erase(0, pos+1);
+                }
+                cpsInit.push_back(std::stod(initStr.substr(0,pos)));
                 break;
             case CPSOOM:
                 cpsOoM = atof(opt.arg);
@@ -398,7 +445,7 @@ Opts ParseOptions(int argc, char ** argv){
     message << "\t" << longOptionNames.at(SIMSIZE) << ":\t" << opts.simSize << "\n";
     message << "\t" << longOptionNames.at(CGDISABLE) << ":\t" << bEnableGradDescentStr << "\n";
     message << "\t" << longOptionNames.at(CPSHORIZON) << ":\t" << cpsHorizon << "\n";
-    message << "\t" << longOptionNames.at(CPSINIT) << ":\t" << cpsInit << "\n";
+    message << "\t" << longOptionNames.at(CPSINIT) << ":\t" << join(cpsInit) << "\n";
     message << "\t" << longOptionNames.at(CPSOOM) << ":\t" << cpsOoM << "\n";
     message << "\t" << longOptionNames.at(CPSRATE) << ":\t" << cpsRate << "\n";
     message << "\t" << longOptionNames.at(CSVALPHA) << ":\t" << csvAlpha << "\n";
@@ -527,42 +574,7 @@ bool ValidateInput(const model::StateMap & obs, const prior::CPrior & prior, con
     return isValid;
 }
 
-template<typename T>
-std::string join(const std::vector<T> & v, std::string delim = ","/*, std::string mark = std::string(), std::string markIdx = 0;*/){
-    if(v.empty()){
-        return std::string();
-    }
-    std::string out = std::to_string(v[0]);
-    //if(markIdx == 0){
-    //    out = mark + out;
-    //}
-    for(int i = 1;i < v.size(); i++){
-        out += delim;
-        //if(markIdx == i){
-        //    out += mark;
-        //}
-        out += std::to_string(v[i]);
-    }
-    return out;
-}
-
-std::string join(const std::vector<std::string> & v, std::string delim = ","/*, std::string mark = std::string(), std::string markIdx = 0;*/){
-    if(v.empty()){
-        return std::string();
-    }
-    std::string out = v[0];
-    //if(markIdx == 0){
-    //    out = mark + out;
-    //}
-    for(int i = 1;i < v.size(); i++){
-        out += delim;
-        //if(markIdx == i){
-        //    out += mark;
-        //}
-        out += v[i];
-    }
-    return out;
-}    
+    
      
 void InitialOutput(size_t nProt,const model::CModel & model){
         for(int i = 0; i < nProt; i++){
@@ -725,6 +737,9 @@ int main(int argc, char ** argv){
     std::vector<std::unique_ptr<chain::CChain>> vChains;
     if(opts.resume.empty()){
         GenerateChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool);
+        std::stringstream stream;
+        stream << vChains[0]->getModel() << "\n";
+        logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
         if(vChains[0]->getModel().isFixed()){
             logger::Log("The Prior is Fixed for all parameters, assuming the desired behaviour is evaluation of the logLikelihood of the model defined by the prior\n",logger::WARNING);
             std::cout << vChains[0]->getLastEval() << "±" << vChains[0]->getEvaluationSD() << "\n";
@@ -734,7 +749,6 @@ int main(int argc, char ** argv){
     } else {
         acceptCount += ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume);
     }
-
 
     int iteration = 0;
     const std::vector<std::string> & vParamNames = vChains[0]->getModel().getParamNames();
