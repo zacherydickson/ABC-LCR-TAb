@@ -7,3 +7,4 @@ obj
 *res
 .nfs*
 *.pdf
+tmp/
