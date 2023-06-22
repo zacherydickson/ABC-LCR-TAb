@@ -192,11 +192,9 @@ namespace chain {
         int bOnce= (CChain::BGradientDescent) ? 0 : 1;
         do{
             proposal->logJointPriorDensity = this->prior.get().calculateJointPriorDensity(proposal->getParamMap());
-            if(id == 0){
-                std::stringstream stream;
-                stream << *proposal << "\n";
-                logger::Log("Proposed Model\n%s",logger::DEBUG,stream.str().c_str());
-            }
+            std::stringstream stream;
+            stream << *proposal << "\n";
+            logger::Log("Chain %d) Proposed Model\n%s",logger::DEBUG,this-> id,stream.str().c_str());
             this->doEvaluation(proposal.get());
             //Try accepting the proposal
             double accept = this->calcAcceptanceRatio(*proposal,temperature);
