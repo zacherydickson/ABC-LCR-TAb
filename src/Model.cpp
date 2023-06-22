@@ -717,7 +717,7 @@ namespace model{
             node.value.vAbundance.push_back(abundance);
             //Sample the Length Based on the branch length and the parent value
             double fcRoot = (1.0 + node.value.vAbundance[protIdx]) / (1.0+ root.value.vAbundance[protIdx]);
-            double upsilonTerm = std::exp(fcRoot * this->parameters.at("upsilon").value);
+            double upsilonTerm = std::pow(fcRoot,this->parameters.at("upsilon").value);
             double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
             lambdaTerm *= upsilonTerm;
             double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
@@ -775,7 +775,7 @@ namespace model{
             double pTerm = parent.value.vAbundance[protIdx]*selCoef;
             double rTerm = root.value.vAbundance[protIdx]*(1.0-selCoef);
             double lfc = (parent.value.vLength[protIdx]+1.0) / (root.value.vLength[protIdx] + 1.0);
-            double tauTerm = std::exp(this->parameters.at("tau").value * lfc);
+            double tauTerm = std::pow(lfc,this->parameters.at("tau").value);
             double meanAb = pTerm + rTerm * tauTerm;
             double driftCoef = this->parameters.at("sigma").value*time;
             int abundance = stats::DiscreteTruncatedNormalQuantile(
@@ -784,7 +784,7 @@ namespace model{
             node.value.vAbundance.push_back(abundance);
             //Sample the Length
             double afc = (1.0+parent.value.vAbundance[protIdx]) / (1.0+root.value.vAbundance[protIdx]);
-            double upsilonTerm = std::exp(afc * this->parameters.at("upsilon").value);
+            double upsilonTerm = std::pow(afc,this->parameters.at("upsilon").value);
             double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
             lambdaTerm *= upsilonTerm;
             double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
