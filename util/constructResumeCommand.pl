@@ -3,9 +3,11 @@ use warnings;
 use strict;
 use Class::Struct;
 use File::Basename;
+use Scalar::Util qw(looks_like_number);
 use Zach::Util::File qw(OpenFileHandle);
 
 sub ParseLogFile($);
+sub DetermineDefaults($);
 sub ParsePriorFile($);
 sub ConcatExecPath($$);
 
@@ -24,8 +26,10 @@ sub main {
     my $resFile = "$baseName.res";
     my $logFile = "$baseName.log";
     my %commandArgs = ParseLogFile($logFile);
-    my $priorPath = ConcatExecPath($execPath,$commandArgs{prior});
-    my @paramNames = ParsePriorFile("$execPath/$commandArgs{prior}");
+    for my $option (qw(prior observations tree)){
+        $commandArgs{$option} = ConcatExecPath($execPath,$commandArgs{$option})
+    }
+    my @paramNames = ParsePriorFile($commandArgs{prior});
     my $rScaleDict = $commandArgs{'updated-proposal-scale'};
     my @initScaleList = split(",",$commandArgs{'initial-proposal-scale'});
     my @scaleList;
@@ -39,6 +43,20 @@ sub main {
     }
     $commandArgs{'initial-proposal-scale'} = join(",",@scaleList);
     delete $commandArgs{'updated-proposal-scale'};
+    ##Remove options which are at default values
+    my %defaultDict = DetermineDefaults($runPath);
+    while(my ($option,$default) = each %defaultDict){
+        next unless(exists $commandArgs{$option});
+        print STDERR "\t$option: $default vs $commandArgs{$option}\n";
+        if(looks_like_number($commandArgs{$option}) and looks_like_number($default)){
+            next unless($commandArgs{$option} == $default);
+        } elsif($commandArgs{$option} ne $default){
+            next
+        }
+        print STDERR "Delete\n";
+        delete $commandArgs{$option};
+    }
+    ##Construct the Command
     my @cmdParts = ($runPath, "--resume-from $resFile");
     foreach my $key (keys %FlagSet){
         next unless($commandArgs{$key} eq "FALSE");
@@ -48,7 +66,7 @@ sub main {
         my $value = (exists $FlagSet{$option} ) ? "" : $commandArgs{$option};
         push(@cmdParts,"--$option $value");
     }
-    push(@cmdParts,(">| ${baseName}_resumed.res","2>| ${baseName}_resumed.res"));
+    push(@cmdParts,("--verbose", ">| ${baseName}_resumed.res","2>| ${baseName}_resumed.log"));
     print join(" ",@cmdParts),"\n";
 } main(@ARGV);
 
@@ -76,6 +94,7 @@ sub ParseLogFile($){
                 my $value = $1;
                 #Only want to lates update
                 next if(exists $commandArgs{'initial-sim-variance-alpha'});
+                print STDERR "$line\n";
                 $commandArgs{'initial-sim-variance-alpha'} = 10**$value;
             } elsif($line =~ m/increment updated to (-?[0-9.]+)/){
                 my $value = $1;
@@ -123,4 +142,24 @@ sub ConcatExecPath($$){
         return $suffix;
     }
     return "$preFix/$suffix";
+}
+
+#Given a path to the executable, parses the help file to determine the program defaults
+#Inputs - a path to a run_abc.sh file
+#Ouputs - an option keyed hash of option defaults
+sub DetermineDefaults($){
+    my $path = shift;
+    my $fh = OpenFileHandle("$path 2>&1 |","run_abc","WARNING");
+    return () unless($fh);
+    my %defaultDict;
+    while(my $line = <$fh>){
+        chomp($line);
+        if($line =~ /^\[(.+)\] --([^ ,]+)/){
+            my $default = $1;
+            my $option = $2;
+            $defaultDict{$option} = $default;
+        }
+    }
+    close($fh);
+    return %defaultDict;
 }
