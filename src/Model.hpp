@@ -4,6 +4,7 @@
 #include "ctpl_stl.h"
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <random>
@@ -26,6 +27,15 @@ namespace model {
             this->lowerBound = rhs.lowerBound;
             this->upperBound = rhs.upperBound;
             return *this;
+        }
+        bool isFixed(double at = std::numeric_limits<double>::quiet_NaN()) const {
+            if(lowerBound != upperBound){
+                return false;
+            }
+            if(!std::isnan(at) && value != at){
+                return false;
+            }
+            return true;
         }
     };
 

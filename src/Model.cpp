@@ -52,7 +52,7 @@ namespace model{
         bFixed(true)
     {
         for(const auto & pair: params){
-            if(pair.second.lowerBound != pair.second.upperBound){
+            if(!pair.second.isFixed()){
                 this->bFixed = false;
                 break;
             }

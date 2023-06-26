@@ -100,16 +100,16 @@ namespace prior {
         //Determine which derived model to output
         switch(this->modelType){
             case model::StepwiseOU:
-                logger::Log("Returing StepwiseOUModel",logger::DEBUG+1);
+                logger::Log("Returning StepwiseOUModel",logger::DEBUG+1);
                 return std::unique_ptr<model::CModel>(new model::CStepwiseOUModel(this->vInitStates,parameters,0,logDensity));
             case model::OUStepwise:
-                logger::Log("Returing OUStepwiseModel",logger::DEBUG+1);
+                logger::Log("Returning OUStepwiseModel",logger::DEBUG+1);
                 return std::unique_ptr<model::CModel>(new model::COUStepwiseModel(this->vInitStates,parameters,0,logDensity));
             case model::UnifiedStepwiseOU:
-                logger::Log("Returing UnifiedStepwiseOUModel",logger::DEBUG+1);
+                logger::Log("Returning UnifiedStepwiseOUModel",logger::DEBUG+1);
                 return std::unique_ptr<model::CModel>(new model::CUnifiedStepwiseOUModel(this->vInitStates,parameters,0,logDensity));
             default:
-                logger::Log("Returing Null Base Model",logger::DEBUG+1);
+                logger::Log("Returning Null Base Model",logger::DEBUG+1);
                 return std::unique_ptr<model::CModel>(nullptr);
         }
     }
