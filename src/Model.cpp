@@ -46,7 +46,7 @@ namespace model{
     //#### CON-/DESTRUCTION ######################
     
     //CModel
-    CModel::CModel(vInitialModelState vinitstates, ParamMap params, double loghastingsratio, double logJointPriorDensity):
+    CModel::CModel(vInitialModelState vinitstates, ParamMap params, double loghastingsratio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
         vInitStates(vinitstates), parameters(params), logHastingsRatio(loghastingsratio),
         nlogJointProbability(-1.0), logJointPriorDensity(logJointPriorDensity),
         bFixed(true)
@@ -57,11 +57,17 @@ namespace model{
                 break;
             }
         }
+        if(initEvalBlocks){
+            this->vEvalBlocks = *initEvalBlocks;
+        }
+        if(initPartition){
+            this->evalBlockIdxPartition = *initPartition;
+        }
     }
 
     //CStepwiseOUModel
-    CStepwiseOUModel::CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity):
-        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity)
+    CStepwiseOUModel::CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
+        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity,initEvalBlocks,initPartition)
     {
         //Validate params
         for(const std::string & name : CStepwiseOUModel::parameterNames){
@@ -72,12 +78,14 @@ namespace model{
         if(this->parameters.size() > CStepwiseOUModel::parameterNames.size()){
             throw std::invalid_argument("Attempt to construct CStepwiseOUModel with unrecognized parameters");
         }
-        this->determineEvaluationBlocks();
+        if(this->vEvalBlocks.size() == 0){
+            this->determineEvaluationBlocks();
+        }
     }
 
     //COUStepwiseModel
-    COUStepwiseModel::COUStepwiseModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity):
-        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity)
+    COUStepwiseModel::COUStepwiseModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
+        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity,initEvalBlocks,initPartition)
     {
         //Validate params
         for(const std::string & name : COUStepwiseModel::parameterNames){
@@ -88,12 +96,14 @@ namespace model{
         if(this->parameters.size() > COUStepwiseModel::parameterNames.size()){
             throw std::invalid_argument("Attempt to construct COUStepwiseModel with unrecognized parameters");
         }
-        this->determineEvaluationBlocks();
+        if(this->vEvalBlocks.size() == 0){
+            this->determineEvaluationBlocks();
+        }
     }
 
     //CUnifiedStepwiseOUModel
-    CUnifiedStepwiseOUModel::CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity):
-        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity)
+    CUnifiedStepwiseOUModel::CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
+        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity,initEvalBlocks,initPartition)
     {
         //Validate params
         for(const std::string & name : CUnifiedStepwiseOUModel::parameterNames){
@@ -104,7 +114,9 @@ namespace model{
         if(this->parameters.size() > CUnifiedStepwiseOUModel::parameterNames.size()){
             throw std::invalid_argument("Attempt to construct CUnifiedStepwiseOUModel with unrecognized parameters");
         }
-        this->determineEvaluationBlocks();
+        if(this->vEvalBlocks.size() == 0){
+            this->determineEvaluationBlocks();
+        }
     }
 
 //#### STATIC METHODS ######################
@@ -202,29 +214,14 @@ namespace model{
         size_t nProt = obs.begin()->second.size();
         size_t nTips = tree.getNLeaves();
         size_t nThreads = threadPool.size();
-        //Determine the maximum root to tip divergence between root values and observed tips
-        this->maxR2TDivA = 0;
-        this->maxR2TDivL = 0;
-        for(int prot = 0; prot < vInitStates.size(); prot++){
-            int rootL = this->vInitStates[prot].length.getMode();
-            int rootA = this->vInitStates[prot].abundance.getMode();
-            for(const auto & pair : obs){
-                double divL = std::abs(pair.second[prot].length.getMode() - rootL)/double(rootL);
-                double divA = std::abs(pair.second[prot].abundance.getMode() - rootA)/double(rootA);
-                //double div = std::max(divL,divA);
-               //fprintf(stderr,"div: %0.04f [%d,%d]\n",div,pair.second[prot].length.getMode(),pair.second[prot].abundance.getMode());
-                if(divL > this->maxR2TDivL){
-                    this->maxR2TDivL = divL;
-                }
-                if(divA > this->maxR2TDivA){
-                    this->maxR2TDivL = divA;
-                }
-            }
-        }
         logger::Log("Evaluating model with %ld threads ...",logger::DEBUG,nThreads);
         double nLogP = 0;
         if(nThreads > 1){
-            std::vector<std::vector<int>> vThreadBlocks = this->partitionEvalBlocks(nThreads);
+            //Check if the requested thread paritioning matches the current partitioning
+            if(this->evalBlockIdxPartition.nThreads != nThreads){
+                this->partitionEvalBlocks(nThreads);
+            }
+            std::vector<std::vector<int>> & vThreadBlocks = this->evalBlockIdxPartition.vThreadBlocks;
             std::vector<std::future<double>> vFutures;
             for(const std::vector<int> & threadBlock : vThreadBlocks){
                 std::future<double> future = threadPool.push(std::bind(&CModel::evaluateBlocks,this,_1,_2,_3,_4,_5,_6),std::cref(threadBlock),std::cref(tree),std::cref(obs),gen(),nSim);
@@ -406,7 +403,7 @@ namespace model{
 //                    return this->vInitStates[a].abundance < this->vInitStates[b].abundance;
 //                });
         EvaluationBlock curBlock;
-        curBlock.push_back(std::ref(this->vInitStates[vIdxs[0]]));
+        curBlock.push_back(vIdxs[0]);
         for(int i = 0; i < vIdxs.size()-1; i++){
             auto it1 = vIdxs.begin()+i;
             auto it2 = vIdxs.begin()+(i+1);
@@ -414,14 +411,14 @@ namespace model{
             if(this->evalIsEqual(*it1,*it2)){
             //if(this->vInitStates[*it1].abundance == this->vInitStates[*it2].abundance)
                 //Add the next protein to the current block
-                curBlock.push_back(std::ref(this->vInitStates[*it2]));
+                curBlock.push_back(*it2);
                 vIdxs.erase(it2); //Stop considering this protein
                 i--; //Take  step back so that the next iteration compares the current state again
             } else { //The current Block is complete, start a new one
                 this->vEvalBlocks.push_back(curBlock);
                 curBlock.clear();
                 //Start the next block with the next protein
-                curBlock.push_back(std::ref(this->vInitStates[*it2]));
+                curBlock.push_back(*it2);
             }
         }
         this->vEvalBlocks.push_back(curBlock);
@@ -442,7 +439,8 @@ namespace model{
         return nLogP;
     }
 
-    std::vector<std::vector<int>> CModel::partitionEvalBlocks(size_t nThreads) const {
+    void CModel::partitionEvalBlocks(size_t nThreads) {
+        this->evalBlockIdxPartition.nThreads = nThreads;
         logger::Log("Paritioning Evaluation Blocks ...",logger::DEBUG+1);
         //Group Evaluation Blocks into a block of Blocks for each thread
         //  Uses a greedy algorithm of adding each evalBlock (in descending order of size)
@@ -459,8 +457,8 @@ namespace model{
         }
         size_t min = *std::min_element(threadBlockWeight.begin(),threadBlockWeight.end());
         size_t max = *std::max_element(threadBlockWeight.begin(),threadBlockWeight.end());
+        this->evalBlockIdxPartition.vThreadBlocks = vvEvalBlockIdxs;
         logger::Log("Partitioned into %ld threadBlocks with %ld to %ld proteins each",logger::DEBUG+1,nThreads,min, max);
-        return vvEvalBlockIdxs;
     }
 
     GradientMap CModel::estimateGradient(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool, std::mt19937 & gen, size_t nSim) const {
@@ -554,7 +552,8 @@ namespace model{
                 //Second is a vector of all proteins
                 auto & node = vNodes.atLabel(tipPair.first);
                 int unitIdx = 0;
-                for(const InitialModelState & iState: evalBlock){
+                for(int j : evalBlock){
+                    const InitialModelState & iState = this->vInitStates[j];
                     for(const int protIdx : iState.vProtIdxs){
                         int nodeVal[2] = {node.value.vLength[unitIdx],node.value.vAbundance[unitIdx]};
                         double trueVal[2] = {double(tipPair.second[protIdx].length.getMode()),double(tipPair.second[protIdx].abundance.getMode())};
@@ -587,6 +586,20 @@ namespace model{
         return nLogP;
     }
 
+    size_t CModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const {
+        //Object to keep track of the counts across tips, proteins, and data types
+        size_t nProt = 0;
+        for(int j : evalBlock){
+            const InitialModelState & state = this->vInitStates[j];
+            int length = state.length.getMode();
+            int abundance = state.abundance.getMode();
+            rootNode.value.vLength.push_back(length);
+            rootNode.value.vAbundance.push_back(abundance);
+            nProt += state.vProtIdxs.size();
+        }
+        return nProt;
+    }
+
     std::ostream& CModel::output(std::ostream& os) const{
         for(int i = 0; i < this->vInitStates.size(); i++){
             os << "[";
@@ -614,23 +627,7 @@ namespace model{
     //CStepwiseOUModel -- overridden, private
 
     std::unique_ptr<CModel> CStepwiseOUModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const {
-        return std::unique_ptr<CModel>(new CStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio));
-    }
-
-    size_t CStepwiseOUModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const {
-        //Object to keep track of the counts across tips, proteins, and data types
-        size_t nProt = 0;
-        int length = evalBlock[0].get().length.getMode();
-        for(const auto & state : evalBlock){
-            int abundance = state.get().abundance.getMode();
-            //Every protein has the same length at the root
-            //  To have consistent polymorphism, we'll waste the memory and repeat it for
-            //  each evalBlock
-            rootNode.value.vLength.push_back(length);
-            rootNode.value.vAbundance.push_back(abundance);
-            nProt += state.get().vProtIdxs.size();
-        }
-        return nProt;
+        return std::unique_ptr<CModel>(new CStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
     }
 
     void CStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
@@ -684,23 +681,7 @@ namespace model{
     //COUStepwiseModel -- overridden, private
     
     std::unique_ptr<CModel> COUStepwiseModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const{
-        return std::unique_ptr<CModel>(new COUStepwiseModel(this->vInitStates,newParams,logHastingsRatio));
-    }
-
-    size_t COUStepwiseModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
-        //Object to keep track of the counts across tips, proteins, and data types
-        size_t nProt = 0;
-        int abundance = evalBlock[0].get().abundance.getMode();
-        for(const auto & state : evalBlock){
-            int length = state.get().length.getMode();
-            rootNode.value.vLength.push_back(length);
-            //Every protein has the same abundance at the root
-            //  To have consistent polymorphism, we'll waste the memory and repeat it for
-            //  each evalBlock
-            rootNode.value.vAbundance.push_back(abundance);
-            nProt += state.get().vProtIdxs.size();
-        }
-        return nProt;
+        return std::unique_ptr<CModel>(new COUStepwiseModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
     }
 
     void COUStepwiseModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
@@ -752,20 +733,7 @@ namespace model{
 //CUnifiedStepwiseOUModel -- overridden, private
     
     std::unique_ptr<CModel> CUnifiedStepwiseOUModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const{
-        return std::unique_ptr<CModel>(new CUnifiedStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio));
-    }
-
-    size_t CUnifiedStepwiseOUModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const{
-        //Object to keep track of the counts across tips, proteins, and data types
-        size_t nProt = 0;
-        for(const auto & state : evalBlock){
-            int length = state.get().length.getMode();
-            int abundance = state.get().abundance.getMode();
-            rootNode.value.vLength.push_back(length);
-            rootNode.value.vAbundance.push_back(abundance);
-            nProt += state.get().vProtIdxs.size();
-        }
-        return nProt;
+        return std::unique_ptr<CModel>(new CUnifiedStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
     }
 
     void CUnifiedStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{

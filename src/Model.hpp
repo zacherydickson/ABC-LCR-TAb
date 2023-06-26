@@ -71,9 +71,20 @@ namespace model {
         }
     };
 
+    struct SEvalBlockIdxPartition {
+        SEvalBlockIdxPartition() : nThreads(0) {}
+        size_t nThreads;
+        std::vector<std::vector<int>> vThreadBlocks;
+        SEvalBlockIdxPartition & operator=(const SEvalBlockIdxPartition & rhs){
+            this->nThreads = rhs.nThreads;
+            this->vThreadBlocks = rhs.vThreadBlocks;
+            return *this;
+        }
+    };
+
     typedef std::vector<ModelState> vModelState;
     typedef std::vector<InitialModelState> vInitialModelState;
-    typedef std::vector<std::reference_wrapper<const InitialModelState>> EvaluationBlock;
+    typedef std::vector<int> EvaluationBlock;
     typedef std::vector<EvaluationBlock> vEvaluationBlock;
     typedef std::map<std::string,vModelState> StateMap;
     typedef std::map<std::string,SParameterSpecification> ParamMap;
@@ -90,7 +101,7 @@ namespace model {
         //Con-/Destruction
         public:
             CModel() = delete;
-            CModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1);
+            CModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
         //Members
         public: 
             double logHastingsRatio;
@@ -102,6 +113,7 @@ namespace model {
             double nlogJointProbability;
             double minEvalValue;
             vEvaluationBlock vEvalBlocks;
+            SEvalBlockIdxPartition evalBlockIdxPartition;
             double maxR2TDivL;
             double maxR2TDivA;
         protected:
@@ -142,12 +154,13 @@ namespace model {
             double getMinEval() const;
             const ParamMap & getParamMap() {return this->parameters;}
             std::unique_ptr<CModel> goldenSearch(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const;
+            virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const;
             bool isFixed() const {return this->bFixed;}
             std::ostream& output(std::ostream&) const;
             std::unique_ptr<CModel> proposeJump(const ProposalScaleMap & scaleMap, std::mt19937 & gen) const;
             void setToStr(const std::string & modelStr);
         protected:
-            std::vector<std::vector<int>> partitionEvalBlocks(size_t nThreads) const;
+            void partitionEvalBlocks(size_t nThreads);
         //Virtual Methods
         public:
             virtual const std::string & getName() const {return modelName;}
@@ -159,7 +172,6 @@ namespace model {
         protected:
             virtual bool evalIsLess(int a, int b) = 0;
             virtual bool evalIsEqual(int a, int b) = 0;
-            virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const = 0;
             virtual void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const = 0;
     };
 
@@ -177,7 +189,7 @@ namespace model {
         //Con-/Destruction
         public:
             CStepwiseOUModel() = delete;
-            CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1);
+            CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
         //Static Members
         private:
             static const std::string modelName;
@@ -191,7 +203,6 @@ namespace model {
             const std::vector<std::string> & getParamNames() const override {return parameterNames;}
         private:
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
-            size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
             bool evalIsLess(int a, int b) override {return this->vInitStates[a].length < this->vInitStates[b].length;}
             bool evalIsEqual(int a, int b) override {return this->vInitStates[a].length == this->vInitStates[b].length;}
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
@@ -209,7 +220,7 @@ namespace model {
         //Con-/Destruction
         public:
             COUStepwiseModel() = delete;
-            COUStepwiseModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1);
+            COUStepwiseModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
         //Static Members
         private:
             static const std::string modelName;
@@ -218,14 +229,13 @@ namespace model {
         private:
         //Overridden Methods
         public:
-            const std::string & getName() const override {return this->modelName;}
-            const size_t getNParams() const override {return this->parameterNames.size();}
-            const std::vector<std::string> & getParamNames() const override {return this->parameterNames;}
+            const std::string & getName() const override {return modelName;}
+            const size_t getNParams() const override {return parameterNames.size();}
+            const std::vector<std::string> & getParamNames() const override {return parameterNames;}
         private:
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
             virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a].abundance < this->vInitStates[b].abundance;}
             virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a].abundance == this->vInitStates[b].abundance;}
-            size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
     };
 
@@ -242,7 +252,7 @@ namespace model {
         //  parent node
         public:
             CUnifiedStepwiseOUModel() = delete;
-            CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1);
+            CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
         //Static Members
         private:
             static const std::string modelName;
@@ -251,14 +261,13 @@ namespace model {
         private:
         //Overridden Methods
         public:
-            const std::string & getName() const override {return this->modelName;}
-            const size_t getNParams() const override {return this->parameterNames.size();}
-            const std::vector<std::string> & getParamNames() const override {return this->parameterNames;}
+            const std::string & getName() const override {return modelName;}
+            const size_t getNParams() const override {return parameterNames.size();}
+            const std::vector<std::string> & getParamNames() const override {return parameterNames;}
         private:
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
             virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a] < this->vInitStates[b];}
             virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a] == this->vInitStates[b];}
-            size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const override;
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
     };
 

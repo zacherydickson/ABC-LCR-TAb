@@ -28,7 +28,7 @@ namespace chain {
         adaptiveSimAlpha(CChain::TargetAcceptRate,CChain::AcceptAlphaHorizon,
                 CChain::InitialSimulationAlpha,pow(10.0,-CChain::MaximumProposalScaleOoM),1.0)
     {
-        logger::Log("Chain %d) seed %ld\n",logger::DEBUG,id,seed);
+        logger::Log("Chain %d) seed %ld",logger::DEBUG,id,seed);
         this->model = prior.GenerateModel(this->gen);
         this->constructAdaptiveScales(); 
         //if(id == 0){
@@ -160,6 +160,7 @@ namespace chain {
     }
 
     double CChain::estimateSimulationVariance(){
+        logger::Log("Chain %d) Estimating std evaluation error ...",logger::INFO,id);
         std::vector<double> vEvaluationResults;
         for(int i = 0; i < CChain::SimulationVarianceEstimationN; i++){
             this->doEvaluation(this->model.get(),true);

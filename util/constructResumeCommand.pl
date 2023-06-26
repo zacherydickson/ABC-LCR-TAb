@@ -43,6 +43,7 @@ sub main {
     }
     $commandArgs{'initial-proposal-scale'} = join(",",@scaleList);
     delete $commandArgs{'updated-proposal-scale'};
+    $commandArgs{'resume-from'} = $resFile;
     ##Remove options which are at default values
     my %defaultDict = DetermineDefaults($runPath);
     while(my ($option,$default) = each %defaultDict){
@@ -57,7 +58,7 @@ sub main {
         delete $commandArgs{$option};
     }
     ##Construct the Command
-    my @cmdParts = ($runPath, "--resume-from $resFile");
+    my @cmdParts = ($runPath);
     foreach my $key (keys %FlagSet){
         next unless($commandArgs{$key} eq "FALSE");
         delete $commandArgs{$key}

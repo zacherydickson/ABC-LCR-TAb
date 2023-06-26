@@ -5,7 +5,7 @@ lambda	LogNormal	logmu:-0.5	logsigma:0.5
 muOoM	TruncatedNormal	mu:-13.5	sigma:2.0	a:-inf	b:0
 sigma	HalfNormal	sigma:10
 tau	Normal	mu:0	sigma:1.0
-upsilon	Uniform	a:-1.0	b:1.0
+upsilon	Fixed	mu:0
 InitA_0	Fixed	mu:100
 InitA_1	Fixed	mu:200
 InitA_2	Fixed	mu:56
