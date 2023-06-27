@@ -48,13 +48,11 @@ sub main {
     my %defaultDict = DetermineDefaults($runPath);
     while(my ($option,$default) = each %defaultDict){
         next unless(exists $commandArgs{$option});
-        print STDERR "\t$option: $default vs $commandArgs{$option}\n";
         if(looks_like_number($commandArgs{$option}) and looks_like_number($default)){
             next unless($commandArgs{$option} == $default);
         } elsif($commandArgs{$option} ne $default){
             next
         }
-        print STDERR "Delete\n";
         delete $commandArgs{$option};
     }
     ##Construct the Command
@@ -95,7 +93,6 @@ sub ParseLogFile($){
                 my $value = $1;
                 #Only want to lates update
                 next if(exists $commandArgs{'initial-sim-variance-alpha'});
-                print STDERR "$line\n";
                 $commandArgs{'initial-sim-variance-alpha'} = 10**$value;
             } elsif($line =~ m/increment updated to (-?[0-9.]+)/){
                 my $value = $1;

@@ -68,7 +68,30 @@ namespace model {
     struct SVectorizedModelState {
         std::vector<int> vLength;
         std::vector<int> vAbundance;
+        std::ostream& output(std::ostream& os) const {
+            os << "[L:{";
+            int counter = 0;
+            for(int l : vLength){
+                os << l;
+                if(++counter < vLength.size()){
+                    os << ",";
+                }
+            }
+            os << "} A:{";
+            counter = 0;
+            for(int a : vAbundance){
+                os << a;
+                if(++counter < vAbundance.size()){
+                    os << ",";
+                }
+            }
+            os << "}]";
+            return os;
+        }
     };
+
+
+    inline std::ostream& operator<<(std::ostream& os, const SVectorizedModelState & obj){return obj.output(os);}
 
     struct InitialModelState : ModelState {
         std::vector<int> vProtIdxs;

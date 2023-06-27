@@ -95,10 +95,10 @@ struct SDepthFirstAccessNodeVector {
         SBasicNode<T> & atIndex(int idx){return this->vNodes[idx];}
         std::ostream& output(std::ostream& os) const {
             for(int i = 0; i < this->vNodes.size(); i++){
-                os << "Node_" << vNodes[i].parent <<
-                   "--- " << vNodes[i].height << "--> Node_" <<
-                   i << "(" << vNodes[i].label << "):" <<
-                   vNodes[i].value << "\n";
+                os << "Node_" << vNodes[i].parent
+                   << "--- " << vNodes[i].height << "--> Node_"
+                   << i << "(" << vNodes[i].label << "):"
+                   << vNodes[i].value << "\n";
             }
             return os;
         }

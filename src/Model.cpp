@@ -485,6 +485,11 @@ namespace model{
                 double time = node.height;
                 this->sampleSimulationNode(evalBlock,node,parent,rootNode,time,gen);
             }
+            if(logger::Verbosity >= logger::DEBUG+3){
+                std::stringstream stream;
+                stream << vNodes;
+                logger::Log("Simulation Result %d\n%s",logger::DEBUG+3,i,stream.str().c_str());
+            }
             //Iterate over tips to update counts
             int tipIdx = 0;
             for(const auto & tipPair : obs){
