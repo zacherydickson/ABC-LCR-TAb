@@ -23,21 +23,11 @@ namespace model{
     const std::vector<std::string> CModel::parameterNames = std::vector<std::string>();
     //StepwiseOU
     const std::string CStepwiseOUModel::modelName = "StepwiseOU";
-    const std::vector<std::string> CStepwiseOUModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","tau"};
-    //OUStepwise
-    const std::string COUStepwiseModel::modelName = "OUStepwise";
-    const std::vector<std::string> COUStepwiseModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","upsilon"};
-    //UnifiedStepwiseOU
-    const std::string CUnifiedStepwiseOUModel::modelName = "UnifiedStepwiseOU";
-    const std::vector<std::string> CUnifiedStepwiseOUModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","tau","upsilon"};
+    const std::vector<std::string> CStepwiseOUModel::parameterNames = {"delta","kappa","lambda","muOoM","sigma","tau","upsilon"};
 
     ModelType str2ModelType(std::string str){
         if(str == "StepwiseOU"){
             return StepwiseOU;
-        } else if(str == "OUStepwise"){
-            return OUStepwise;
-        } else if(str == "UnifiedStepwiseOU"){
-            return UnifiedStepwiseOU;
         } else {
             throw std::invalid_argument("Attempt to enumerate unrecognized model type");
         }
@@ -65,6 +55,7 @@ namespace model{
         }
     }
 
+
     //CStepwiseOUModel
     CStepwiseOUModel::CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
         CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity,initEvalBlocks,initPartition)
@@ -78,42 +69,8 @@ namespace model{
         if(this->parameters.size() > CStepwiseOUModel::parameterNames.size()){
             throw std::invalid_argument("Attempt to construct CStepwiseOUModel with unrecognized parameters");
         }
-        if(this->vEvalBlocks.size() == 0){
-            this->determineEvaluationBlocks();
-        }
-    }
-
-    //COUStepwiseModel
-    COUStepwiseModel::COUStepwiseModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
-        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity,initEvalBlocks,initPartition)
-    {
-        //Validate params
-        for(const std::string & name : COUStepwiseModel::parameterNames){
-            if(this->parameters.count(name) == 0){
-                throw std::invalid_argument("Attempt to construct COUStepwiseModel without all required parameters");
-            }
-        }
-        if(this->parameters.size() > COUStepwiseModel::parameterNames.size()){
-            throw std::invalid_argument("Attempt to construct COUStepwiseModel with unrecognized parameters");
-        }
-        if(this->vEvalBlocks.size() == 0){
-            this->determineEvaluationBlocks();
-        }
-    }
-
-    //CUnifiedStepwiseOUModel
-    CUnifiedStepwiseOUModel::CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio, double logJointPriorDensity, const vEvaluationBlock * initEvalBlocks, const SEvalBlockIdxPartition * initPartition):
-        CModel(vInitStates,params,logHastingsRatio,logJointPriorDensity,initEvalBlocks,initPartition)
-    {
-        //Validate params
-        for(const std::string & name : CUnifiedStepwiseOUModel::parameterNames){
-            if(this->parameters.count(name) == 0){
-                throw std::invalid_argument("Attempt to construct CUnifiedStepwiseOUModel without all required parameters");
-            }
-        }
-        if(this->parameters.size() > CUnifiedStepwiseOUModel::parameterNames.size()){
-            throw std::invalid_argument("Attempt to construct CUnifiedStepwiseOUModel with unrecognized parameters");
-        }
+        this->bFixedZeroTau = this->parameters.at("tau").isFixed(0);
+        this->bFixedZeroUpsilon = this->parameters.at("upsilon").isFixed(0);
         if(this->vEvalBlocks.size() == 0){
             this->determineEvaluationBlocks();
         }
@@ -163,7 +120,6 @@ namespace model{
         double a = param.lowerBound;
         double b = param.upperBound;
         if(a > b){
-            //fprintf(stderr, "value: %0.05f, a: %0.05f, b: %0.05f\n",param.value,a,b);
             throw std::invalid_argument("Proposal Distribution Bounds are inverted");
         }
         if(a == b){ //The bounds are the same, ie. the value is fixed
@@ -177,8 +133,6 @@ namespace model{
         double q = stats::TruncatedNormalQuantile(p,param.value,scale,a,b);
         double logProposalCorrection = std::log(stats::TruncatedNormalPDF(param.value,q,scale,a,b));
         logProposalCorrection -= std::log(stats::TruncatedNormalPDF(q,param.value,scale,a,b));
-//        //fprintf(stderr,"X:%0.05f scale: %0.05f a:%0.05f b:%0.05f zeta:%0.05f p: %0.05f q: %0.05f logP:%0.05f\n",X,scale, a, b, zeta,p, q,logProposalCorrection);
-        //fprintf(stderr,"There p: %0.05f,q:%0.05f,scale:%0.05f,v:%0.05f\n",p,q,scale,param.value);
         param.value = q;        
         return logProposalCorrection;
     }
@@ -266,7 +220,6 @@ namespace model{
             } else if(pair.second.value == 0){
                 dist = maxMultiple; //there is no info on what a big step is, just go a few
             }
-            //fprintf(stderr,"%s) maxDist: %0.04f\n", pair.first.c_str(),dist);
             //The maximum interval
             double intervalDist = dist / std::abs(gradient.at(pair.first));
             if(intervalDist < intervalLength){
@@ -293,14 +246,9 @@ namespace model{
         if(gradient.empty()){ //The overall slope is zero and there is no changing to be done
             return std::unique_ptr<CModel>(nullptr);
         }
-        //for(const auto & pair : gradient){
-        //fprintf(stderr,"%s:%0.4f\t",pair.first.c_str(),pair.second);
-        //}
-        //fprintf(stderr,"\n");
         //Calculate the magnitude of the gradient vector
          
         double intervalLength = this->getMaxVectorDist(gradient); 
-        //fprintf(stderr,"intervalLength: %0.04f\n", intervalLength);
         //intervalLength is now the maximum distance to travel in the gradient direction
         
         //f1 is this object
@@ -326,14 +274,12 @@ namespace model{
             if(aProbePoint[3].first - aProbePoint[0].first < tolerance){
                 bDone = true;
             }
-            //fprintf(stderr,"Δx = %0.04f\n",aProbePoint[3].first - aProbePoint[0].first);
             //Evaluate Models at probe points as necessary
             for(int i = 0; i < 4; i++){
                 if(aProbePoint[i].second >= 0){
                     continue;
                 }
                 ParamMap newParam = this->parameters;
-                    //fprintf(stderr,"[x:%0.04f] ",aProbePoint[i].first);
                 for(auto & pair : newParam){
                     pair.second.value -= aProbePoint[i].first * gradient.at(pair.first);
                     if(pair.second.value < pair.second.lowerBound){
@@ -341,9 +287,7 @@ namespace model{
                     } else if(pair.second.value > pair.second.upperBound){
                         pair.second.value = pair.second.upperBound;
                     }
-                    //fprintf(stderr,"%s) %0.04f -> %0.04f\t",pair.first.c_str(),gradient.at(pair.first),pair.second.value);
                 }
-                //fprintf(stderr,"\n");
                 std::unique_ptr<CModel> pointModel = this->constructAdjacentModel(newParam,0);
                 pointModel->evaluate(tree,obs,threadPool,gen,nSim);
                 aProbePoint[i].second = pointModel->getNLogP();
@@ -394,14 +338,12 @@ namespace model{
     //CModel -- concrete, protected
     
     void CModel::determineEvaluationBlocks(){
+        logger::Log("Determining evaluation Blocks",logger::DEBUG+1);
         using namespace std::placeholders;
         std::vector<int> vIdxs(this->vInitStates.size());
         std::iota(vIdxs.begin(),vIdxs.end(),0);
         //Put the indexes in ascending order of their length
         std::sort(vIdxs.begin(),vIdxs.end(),std::bind(&CModel::evalIsLess,this,_1,_2));
-//                [&](int a, int b) -> bool {
-//                    return this->vInitStates[a].abundance < this->vInitStates[b].abundance;
-//                });
         EvaluationBlock curBlock;
         curBlock.push_back(vIdxs[0]);
         for(int i = 0; i < vIdxs.size()-1; i++){
@@ -427,6 +369,7 @@ namespace model{
             [&](const EvaluationBlock & a, const EvaluationBlock & b) -> bool {
                 return b.size() < a.size();
             });
+        logger::Log("Initial states grouped into %zu blocks",logger::DEBUG+1,this->vEvalBlocks.size());
     }
 
     double CModel::evaluateBlocks(int id, const std::vector<int> & vBlockIdxs, const Tree & tree, const StateMap & obs,size_t seed, size_t nSim) const{
@@ -441,7 +384,7 @@ namespace model{
 
     void CModel::partitionEvalBlocks(size_t nThreads) {
         this->evalBlockIdxPartition.nThreads = nThreads;
-        logger::Log("Paritioning Evaluation Blocks ...",logger::DEBUG+1);
+        logger::Log("Partitioning Evaluation Blocks ...",logger::DEBUG+1);
         //Group Evaluation Blocks into a block of Blocks for each thread
         //  Uses a greedy algorithm of adding each evalBlock (in descending order of size)
         //  to the threadBlock which has the smallest total
@@ -494,14 +437,12 @@ namespace model{
             }
             //Set the new value for the parameter
             newParams[pair.first].value = pair.second.value + sign * hProp * step;
-            //fprintf(stderr,"%s) (v)%0.04f + (s)%d * (h)%0.04f *(t)%0.04f = %0.04f\n",pair.first.c_str(), pair.second.value, sign, hProp, step,newParams[pair.first].value);
             //Generate the model
             std::unique_ptr<CModel> stepModel = this->constructAdjacentModel(newParams,0);
             //Evaluate the model
             stepModel->evaluate(tree,obs,threadPool,gen,nSim);
             //Calculate the slope
             double slope = (stepModel->getNLogP() - this->getNLogP()) / (newParams[pair.first].value - pair.second.value);
-            //fprintf(stderr,"%s) Ls:%0.04f Lm:%0.04f, xs:%0.04f, xm:%0.04f\n",pair.first.c_str(),stepModel->getNLogP(),this->getNLogP(),newParams[pair.first].value,pair.second.value);
             //Store the slope
             gradient[pair.first] = slope;
             gradientMagnitude += std::pow(slope,2.0);
@@ -535,7 +476,6 @@ namespace model{
         for(int i = 0; i < nSim; i++){ //Perform each simulation
             //Iterate over the nodes after the root, simulating as one goes
             for(int nodeIdx = 1; nodeIdx < vNodes.size(); nodeIdx++){
-                //fprintf(stderr,"Node %d\n",nodeIdx);
                 SVModelStateNode & node = vNodes.atIndex(nodeIdx);
                 //Reset the node for each simulation
                 node.value.vLength.clear();
@@ -620,23 +560,32 @@ namespace model{
 
     //CModel -- Virtual, public
 
-    //CStepwiseOUModel -- unique, private
-
-    //CStepwiseOUModel -- overridden, public
+    //CUnifiedStepwiseOUModel -- concrete, private
     
-    //CStepwiseOUModel -- overridden, private
-
-    std::unique_ptr<CModel> CStepwiseOUModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const {
-        return std::unique_ptr<CModel>(new CStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
+    int CStepwiseOUModel::sampleAbundance(int protIdx, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const {
+        double selCoef = std::exp(-this->parameters.at("delta").value*time);
+        double pTerm = parent.value.vAbundance[protIdx]*selCoef;
+        double rTerm = root.value.vAbundance[protIdx]*(1.0-selCoef);
+        double lfc = (parent.value.vLength[protIdx]+1.0) / (root.value.vLength[protIdx] + 1.0);
+        double tauTerm = std::pow(lfc,this->parameters.at("tau").value);
+        double meanAb = pTerm + rTerm * tauTerm;
+        double driftCoef = this->parameters.at("sigma").value*time;
+        int abundance = stats::DiscreteTruncatedNormalQuantile(
+                stats::generate_open_canonical(gen),
+                meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
+        return abundance;
     }
 
-    void CStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
-        //Sample the Length Based on the branch length and the parent value
-        double lambdaTerm = (parent.value.vLength[0]+1)*this->parameters.at("lambda").value*time;
-        double kappaTerm = (parent.value.vLength[0])*this->parameters.at("kappa").value*time;
+    int CStepwiseOUModel::sampleLength(int protIdx, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const {
+        double afc = (1.0+parent.value.vAbundance[protIdx]) / (1.0+root.value.vAbundance[protIdx]);
+        double upsilonTerm = std::pow(afc,this->parameters.at("upsilon").value);
+        double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
+        lambdaTerm *= upsilonTerm;
+        double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
+        kappaTerm *= upsilonTerm;
         int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
         int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
-        int length = parent.value.vLength[0] + nIns - nDel;
+        int length = parent.value.vLength[protIdx] + nIns - nDel;
         length = (length > 0) ? length : 0;
         double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
         if(mutRate > 0.0){
@@ -657,131 +606,80 @@ namespace model{
                 length = int(std::round(prop * length));
             }
         }
-        //Sample each abundance
-        for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
-            //Every protein has the same length at the root
-            //  To have consistent polymorphism, we'll waste the memory and repeat it for
-            //  each evalBlock
-            node.value.vLength.push_back(length);
-            double selCoef = std::exp(-this->parameters.at("delta").value*time);
-            double pTerm = parent.value.vAbundance[protIdx]*selCoef;
-            int lDiff = (node.value.vLength[protIdx] - root.value.vLength[protIdx]);
-            double lTerm = this->parameters.at("tau").value * lDiff;
-            double rTerm = root.value.vAbundance[protIdx]*(1-selCoef);
-            double meanAb = pTerm + rTerm * std::exp(lTerm);
-            double driftCoef = this->parameters.at("sigma").value*time;
-            int abundance = stats::DiscreteTruncatedNormalQuantile(
-                        stats::generate_open_canonical(gen),
-                        meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
-            node.value.vAbundance.push_back(abundance);
-        }
+        return length;
     }
 
+    //CStepwiseOUModel -- overridden, private
     
-    //COUStepwiseModel -- overridden, private
-    
-    std::unique_ptr<CModel> COUStepwiseModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const{
-        return std::unique_ptr<CModel>(new COUStepwiseModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
+    std::unique_ptr<CModel> CStepwiseOUModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const{
+        return std::unique_ptr<CModel>(new CStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
     }
 
-    void COUStepwiseModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
-        //Sample the abundance
-        double selCoef = std::exp(-this->parameters.at("delta").value*time);
-        double pTerm = parent.value.vAbundance[0]*selCoef;
-        double rTerm = root.value.vAbundance[0]*(1-selCoef);
-        double meanAb = pTerm + rTerm;
-        double driftCoef = this->parameters.at("sigma").value*time;
-        int abundance = stats::DiscreteTruncatedNormalQuantile(
-                    stats::generate_open_canonical(gen),
-                    meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
-        for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
-            node.value.vAbundance.push_back(abundance);
-            //Sample the Length Based on the branch length and the parent value
-            double fcRoot = (1.0 + node.value.vAbundance[protIdx]) / (1.0+ root.value.vAbundance[protIdx]);
-            double upsilonTerm = std::pow(fcRoot,this->parameters.at("upsilon").value);
-            double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
-            lambdaTerm *= upsilonTerm;
-            double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
-            kappaTerm *= upsilonTerm;
-            int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
-            int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
-            int length = parent.value.vLength[protIdx] + nIns - nDel;
-            length = (length > 0) ? length : 0;
-            double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
-            if(mutRate > 0.0){
-                int nMut = stats::PoissonQuantile(stats::generate_open_canonical(gen),mutRate);
-                if(nMut > 0){
-                    double sum = 0;
-                    double max = -1;
-                    //Generate n+1 random exponentials with mean 1, the length of the longest chunk uf lcr 
-                    //after n mutations, is the proportion of the max exponentila to the sum
-                    for(int i = 0; i < nMut+1; i++){
-                        double x = stats::ExponentialQuantile(stats::generate_open_canonical(gen),1.0);
-                        sum += x;
-                        if(x > max){
-                            max = x;
-                        }
-                    }
-                    double prop = max / sum; 
-                    length = int(std::round(prop * length));
-                }
+    void CStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
+        //Sample for the first protein
+        int abundance = this->sampleAbundance(0,node,parent,root,time,gen);
+        int length = this->sampleLength(0,node,parent,root,time,gen);
+        node.value.vAbundance.push_back(abundance);
+        node.value.vLength.push_back(length);
+        //check if we have any special cases
+        for(int protIdx = 1; protIdx < evalBlock.size(); protIdx++){
+            //Built in here is the assumption that all proteins in the eval block have
+            //either the same length or abundance
+            if(!this->bFixedZeroTau || this->bFixedZeroUpsilon){
+                //Update abundance if tau isn't fixed at zero, or if upsilon is also fixed
+                //at zero
+                abundance = this->sampleAbundance(protIdx,node,parent,root,time,gen);
             }
-            node.value.vLength.push_back(length);
-        }
-    }
-
-//CUnifiedStepwiseOUModel -- overridden, private
-    
-    std::unique_ptr<CModel> CUnifiedStepwiseOUModel::constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const{
-        return std::unique_ptr<CModel>(new CUnifiedStepwiseOUModel(this->vInitStates,newParams,logHastingsRatio,1,&(this->vEvalBlocks), &(this->evalBlockIdxPartition)));
-    }
-
-    void CUnifiedStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
-        for(int protIdx = 0; protIdx < evalBlock.size(); protIdx++){
-            //Sample the abundance
-            double selCoef = std::exp(-this->parameters.at("delta").value*time);
-            double pTerm = parent.value.vAbundance[protIdx]*selCoef;
-            double rTerm = root.value.vAbundance[protIdx]*(1.0-selCoef);
-            double lfc = (parent.value.vLength[protIdx]+1.0) / (root.value.vLength[protIdx] + 1.0);
-            double tauTerm = std::pow(lfc,this->parameters.at("tau").value);
-            double meanAb = pTerm + rTerm * tauTerm;
-            double driftCoef = this->parameters.at("sigma").value*time;
-            int abundance = stats::DiscreteTruncatedNormalQuantile(
-                    stats::generate_open_canonical(gen),
-                    meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
-            node.value.vAbundance.push_back(abundance);
-            //Sample the Length
-            double afc = (1.0+parent.value.vAbundance[protIdx]) / (1.0+root.value.vAbundance[protIdx]);
-            double upsilonTerm = std::pow(afc,this->parameters.at("upsilon").value);
-            double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
-            lambdaTerm *= upsilonTerm;
-            double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
-            kappaTerm *= upsilonTerm;
-            int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
-            int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
-            int length = parent.value.vLength[protIdx] + nIns - nDel;
-            length = (length > 0) ? length : 0;
-            double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
-            if(mutRate > 0.0){
-                int nMut = stats::PoissonQuantile(stats::generate_open_canonical(gen),mutRate);
-                if(nMut > 0){
-                    double sum = 0;
-                    double max = -1;
-                    //Generate n+1 random exponentials with mean 1, the length of the longest chunk uf lcr 
-                    //after n mutations, is the proportion of the max exponentila to the sum
-                    for(int i = 0; i < nMut+1; i++){
-                        double x = stats::ExponentialQuantile(stats::generate_open_canonical(gen),1.0);
-                        sum += x;
-                        if(x > max){
-                            max = x;
-                        }
-                    }
-                    double prop = max / sum; 
-                    length = int(std::round(prop * length));
-                }
+            if(!this->bFixedZeroUpsilon){
+                //Update abundance if upsilon isn't fixed at zero
+                length = this->sampleLength(protIdx,node,parent,root,time,gen);
             }
+            node.value.vAbundance.push_back(abundance);
             node.value.vLength.push_back(length);
         }
     } //sampleSimulationNode
+
+    bool CStepwiseOUModel::evalIsLess(int a, int b) const {
+        if(!this->bFixedZeroUpsilon && !this->bFixedZeroTau){
+            return false;
+            //There is no usefully defined sorting if both interactions exist
+        }
+        if(this->bFixedZeroTau && !this->bFixedZeroUpsilon){
+            //Abundance is independant of length, sort by abundance
+            if(this->vInitStates[a].abundance < this->vInitStates[b].abundance){
+                return true;
+            }
+            return false;
+        }
+        //In the remaining two cases, both are independent and length is independent of
+        //abundance, we can sort by length; In the former case that is the blocking most
+        //likely to group more proteins
+        if(this->vInitStates[a].length < this->vInitStates[b].length){
+            return true;
+        }
+        return false;
+    }
+
+    bool CStepwiseOUModel::evalIsEqual(int a, int b) const {
+        if(!this->bFixedZeroUpsilon && !this->bFixedZeroTau){
+            //It is assumed that all initial states provided during construction were
+            //unique
+            return false;
+        }
+        if(this->bFixedZeroTau && !this->bFixedZeroUpsilon){
+            //Abundance is independant of length test if the abundances are equal
+            if(this->vInitStates[a].abundance == this->vInitStates[b].abundance){
+                return true;
+            }
+            return false;
+        }
+        //In the remaining two cases, both are independent and length is independent of
+        //abundance, we can sort by length; In the former case that is the blocking most
+        //likely to group more proteins
+        if(this->vInitStates[a].length == this->vInitStates[b].length){
+            return true;
+        }
+        return false;
+    }
 
 } // model namespace

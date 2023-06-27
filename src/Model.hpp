@@ -15,7 +15,7 @@
 
 namespace model {
 
-    enum ModelType {StepwiseOU,OUStepwise,UnifiedStepwiseOU};
+    enum ModelType {StepwiseOU};
     ModelType str2ModelType(std::string str);
 
     struct SParameterSpecification{
@@ -180,76 +180,14 @@ namespace model {
         public:
             virtual std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const = 0;
         protected:
-            virtual bool evalIsLess(int a, int b) = 0;
-            virtual bool evalIsEqual(int a, int b) = 0;
+            virtual bool evalIsLess(int a, int b) const = 0;
+            virtual bool evalIsEqual(int a, int b) const = 0;
             virtual void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const = 0;
     };
 
     inline std::ostream& operator<<(std::ostream& os, const CModel & obj){return obj.output(os);}
 
     class CStepwiseOUModel : public CModel {
-        //Description:
-        //  Length Evol Is modeled as a stepwise process where the rate of indels increases
-        //  linearly with length, over a time period t there are poisson distribtued events
-        //  each with a probability of being an insertion or deletion
-        //  Abundance Evol is modeled as an OU process where the mena value at a node is a
-        //  weighted average of the parent value and the selective optimum
-        //  The Selective Optimum is influenced by the length of the minimum entropy region
-        //  at the current node
-        //Con-/Destruction
-        public:
-            CStepwiseOUModel() = delete;
-            CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
-        //Static Members
-        private:
-            static const std::string modelName;
-            static const std::vector<std::string> parameterNames;
-        //Methods
-        private:
-        //Overridden Methods
-        public:
-            const std::string & getName() const override {return modelName;}
-            const size_t getNParams() const override {return parameterNames.size();}
-            const std::vector<std::string> & getParamNames() const override {return parameterNames;}
-        private:
-            std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
-            bool evalIsLess(int a, int b) override {return this->vInitStates[a].length < this->vInitStates[b].length;}
-            bool evalIsEqual(int a, int b) override {return this->vInitStates[a].length == this->vInitStates[b].length;}
-            void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
-    };
-
-    class COUStepwiseModel : public CModel {
-        //Description:
-        //  Abundance Evol is modeled as an OU process where the mena value at a node is a
-        //  weighted average of the parent value and the selective optimum
-        //  Length Evol Is modeled as a stepwise process where the rate of indels increases
-        //  linearly with length, over a time period t there are poisson distribtued events
-        //  each with a probability of being an insertion or deletion
-        //  The mean number of indels is influenced by the fold change in abundance at the
-        //  current node relative to the root
-        //Con-/Destruction
-        public:
-            COUStepwiseModel() = delete;
-            COUStepwiseModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
-        //Static Members
-        private:
-            static const std::string modelName;
-            static const std::vector<std::string> parameterNames;
-        //Methods
-        private:
-        //Overridden Methods
-        public:
-            const std::string & getName() const override {return modelName;}
-            const size_t getNParams() const override {return parameterNames.size();}
-            const std::vector<std::string> & getParamNames() const override {return parameterNames;}
-        private:
-            std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
-            virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a].abundance < this->vInitStates[b].abundance;}
-            virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a].abundance == this->vInitStates[b].abundance;}
-            void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
-    };
-
-    class CUnifiedStepwiseOUModel : public CModel {
         //Description:
         //  Abundance Evol is modeled as an OU process where the mean value at a node is a
         //  weighted average of the parent value and the selective optimum
@@ -261,12 +199,16 @@ namespace model {
         //  The mean number of indels is influenced by the fold change in abundance at the
         //  parent node
         public:
-            CUnifiedStepwiseOUModel() = delete;
-            CUnifiedStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
+            CStepwiseOUModel() = delete;
+            CStepwiseOUModel(vInitialModelState vInitStates, ParamMap params, double logHastingsRatio = 0, double logJointPriorDensity= 1, const vEvaluationBlock * initEvalBlocks = nullptr, const SEvalBlockIdxPartition * initPartition = nullptr);
         //Static Members
         private:
             static const std::string modelName;
             static const std::vector<std::string> parameterNames;
+        //Members:
+        public:
+            bool bFixedZeroTau;
+            bool bFixedZeroUpsilon;
         //Methods
         private:
         //Overridden Methods
@@ -276,11 +218,15 @@ namespace model {
             const std::vector<std::string> & getParamNames() const override {return parameterNames;}
         private:
             std::unique_ptr<CModel> constructAdjacentModel(ParamMap & newParams, double logHastingsRatio) const override;
-            virtual bool evalIsLess(int a, int b) override {return this->vInitStates[a] < this->vInitStates[b];}
-            virtual bool evalIsEqual(int a, int b) override {return this->vInitStates[a] == this->vInitStates[b];}
+            bool evalIsLess(int a, int b) const override;
+            bool evalIsEqual(int a, int b) const override;
+            int sampleAbundance(int protIdx, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const;
+            int sampleLength(int protIdx, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const;
             void sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const override;
     };
 
+
+      
 } //namespace model
 
 #endif

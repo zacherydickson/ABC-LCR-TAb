@@ -15,8 +15,6 @@ namespace prior {
         //Validate the model type is valid
         switch(type){
             case model::StepwiseOU:
-            case model::OUStepwise:
-            case model::UnifiedStepwiseOU:
                 break;
             default:
                 throw std::invalid_argument("Attempt to construct CPrior for an unknown model");
@@ -102,12 +100,6 @@ namespace prior {
             case model::StepwiseOU:
                 logger::Log("Returning StepwiseOUModel",logger::DEBUG+1);
                 return std::unique_ptr<model::CModel>(new model::CStepwiseOUModel(this->vInitStates,parameters,0,logDensity));
-            case model::OUStepwise:
-                logger::Log("Returning OUStepwiseModel",logger::DEBUG+1);
-                return std::unique_ptr<model::CModel>(new model::COUStepwiseModel(this->vInitStates,parameters,0,logDensity));
-            case model::UnifiedStepwiseOU:
-                logger::Log("Returning UnifiedStepwiseOUModel",logger::DEBUG+1);
-                return std::unique_ptr<model::CModel>(new model::CUnifiedStepwiseOUModel(this->vInitStates,parameters,0,logDensity));
             default:
                 logger::Log("Returning Null Base Model",logger::DEBUG+1);
                 return std::unique_ptr<model::CModel>(nullptr);
