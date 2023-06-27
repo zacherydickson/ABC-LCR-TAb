@@ -93,7 +93,19 @@ struct SDepthFirstAccessNodeVector {
         size_t size(){return this->vNodes.size();}
         SBasicNode<T> & atLabel(std::string label){return this->vNodes[idMap.at(label)];}
         SBasicNode<T> & atIndex(int idx){return this->vNodes[idx];}
+        std::ostream& output(std::ostream& os) const {
+            for(int i = 0; i < this->vNodes.size(); i++){
+                os << "Node_" << vNodes[i].parent <<
+                   "--- " << vNodes[i].height << "--> Node_" <<
+                   i << "(" << vNodes[i].label << "):" <<
+                   vNodes[i].value << "\n";
+            }
+            return os;
+        }
 };
+
+template<typename T>
+inline std::ostream& operator<<(std::ostream& os, const SDepthFirstAccessNodeVector<T> & obj){return obj.output(os);}
 
 #endif
 

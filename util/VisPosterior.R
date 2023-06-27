@@ -12,6 +12,7 @@ burnin <- as.numeric(args[3])
 require("vioplot")
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
+df <- df[-1,]
 nProt <- max(grep("Prot",names(df)))
 n = nProt + sum(names(df)=="") + 1;
 col.names = names(df)[-(1:n)];

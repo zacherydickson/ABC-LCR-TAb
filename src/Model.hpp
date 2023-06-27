@@ -99,9 +99,6 @@ namespace model {
     typedef std::map<std::string,vModelState> StateMap;
     typedef std::map<std::string,SParameterSpecification> ParamMap;
     typedef std::map<std::string,double> GradientMap;
-    typedef std::pair<ProbabilityMap,ProbabilityMap> SStateNodeValue;
-    typedef SDepthFirstAccessNodeVector<SStateNodeValue> SStateNodeVector;
-    typedef SDepthFirstAccessNodeVector<double> ModeNodeVector;
     typedef SDepthFirstAccessNodeVector<SVectorizedModelState> SVModelStateNodeVector;
     typedef SBasicNode<SVectorizedModelState> SVModelStateNode;
     typedef std::map<std::string,double> ProposalScaleMap;
