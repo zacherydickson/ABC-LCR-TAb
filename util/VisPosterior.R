@@ -52,8 +52,7 @@ for(cn in col.names[-1]){
 
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
-ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){sign(min(x[!is.na(x)]))})
-
+ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); round(log10(abs(y)),0)*sign(y)})
 
 
 ##Subsample to every seventh entry for each parameter, offset by when it was being adjusted
