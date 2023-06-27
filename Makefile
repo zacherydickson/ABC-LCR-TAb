@@ -33,4 +33,4 @@ clean:
 .PHONY: distclean
 distclean:
 	@rm -rf $(BDIR) $(ODIR)
-	@find . -maxdepth 1 -type f ! -name Makefile -exec rm -f {} +
+	@find . -maxdepth 1 -type f ! -name Makefile ! -name .gitignore -exec rm -f {} +
