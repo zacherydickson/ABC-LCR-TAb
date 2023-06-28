@@ -575,9 +575,11 @@ namespace model{
         double tauTerm = std::pow(lfc,this->parameters.at("tau").value);
         double meanAb = pTerm + rTerm * tauTerm;
         double driftCoef = this->parameters.at("sigma").value*time;
-        int abundance = stats::DiscreteTruncatedNormalQuantile(
-                stats::generate_open_canonical(gen),
-                meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
+        double foldDrift = stats::LogNormalQuantile(stats::generate_open_canonical(gen),0,driftCoef);
+        int abundance = std::round((meanAb + 1) * foldDrift);
+        //int abundance = stats::DiscreteTruncatedNormalQuantile(
+        //        stats::generate_open_canonical(gen),
+        //        meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
         return abundance;
     }
 
