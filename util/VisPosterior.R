@@ -105,7 +105,7 @@ plotkneedle <- function(x,guess=length(x),...){
         guess = length(x)/2
     }
     guidecol <- rgb(0.5,0.5,0.5,0.5)
-    plot(x,main="Keedle Point Estimation",xlab="",ylab="",type="l")
+    plot(x,main="Kneedle Point Estimation",xlab="",ylab="",type="l")
     x = x[1:(guess*2)]
     tmp <- lowess(x,...)
     y = tmp$y
@@ -118,9 +118,14 @@ plotkneedle <- function(x,guess=length(x),...){
     m = (yn-y0)/(xn-x0)
     theta = atan(abs(1/m))
     b = y0
-    d = abs(y - (m*(x0:xn) + b)) * sin(theta)
+    d = abs(y - (m*(x0:xn) + b))
     B <- which.max(d) + 1
-    segments(tmp$x[B],tmp$y[B],tmp$x[B]+max(d)*cos(theta),tmp$y[B]+max(d)*sin(theta),col=guidecol)
+    #Get the equation of line for the perpendicular at point B
+    #m2 = -1/m
+    #b2 = tmp$y[B] - m2*tmp$x[B]
+    #x_int = (b - b2) / (m2-m)
+    #y_int = x_int*m + b
+    #segments(tmp$x[B],tmp$y[B],x_int,y_int,col=guidecol)
     abline(v=B,lwd=3,col="red")
     return(B)
 }
