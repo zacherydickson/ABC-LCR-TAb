@@ -5,6 +5,7 @@ if(length(args) < 2){
 }
 
 resFile <- args[1]
+logFile <- sub("res$","log",resFile)
 pdfFile <- args[2]
 burnin <- as.numeric(args[3])
 
@@ -20,6 +21,26 @@ modelName <- names(df)[nProt+1]
 for (cn in col.names) {
     df[,cn] <- as.numeric(sapply(strsplit(df[,cn]," "),"[",2))
 }
+
+parseLog <- function(file){
+    lines <- scan(file,what="character",sep="\n")
+    #Reduce to iteration, and swap indication and reult lines
+    lines <- lines[grepl("===Iteration|Swap|with p=",lines)]
+    #Remove any indication of non-main chain swaps
+    nonMainSwaps <- grep("Swap between chains [^0]",lines)
+    if(length(nonMainSwaps) > 0){
+        lines <- lines[-c(nonMainSwaps,nonMainSwaps+1)]
+    }
+    #Remove Swap indicating lines, no longer needed
+    lines <- lines[!grepl("Swap",lines)]
+    AccSwaps <- grep("Accept with",lines)
+    InitialAcceptCount <- sapply(strsplit(lines[1],"\\(|/|\\)",perl=T),function(x){as.numeric(x[length(x)-1])})
+    AcceptCountAtSwap <- sapply(strsplit(lines[AccSwaps-1],"\\(|/|\\)",perl=T),function(x){as.numeric(x[length(x)-1])})
+    return (AcceptCountAtSwap + InitialAcceptCount)
+}
+
+SwapIdx <- parseLog(logFile)
+
 
 #On the assumption that The leftmost paramter is proposed first, and on each acceptance the
 #next pramter is proposed
@@ -38,7 +59,6 @@ lagcor <- function(x,k){
 }
 #RowstoKeep = seq(1,nrow(df),by=n);
 RowstoKeep = seq(1,nrow(df));
-
 isFixed = setNames(rep(FALSE,length(col.names[-1])),col.names[-1])
 
 for(cn in col.names[-1]){
@@ -63,33 +83,60 @@ ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]);
 #
 #df = df2;
 
-kneedle <- function(x,guess=length(x)){
+#kneedle <- function(x,guess=length(x),...){
+#    if(is.na(guess) || guess > length(x) / 2){
+#        guess = length(x)/2
+#    }
+#    x = x[1:(guess*2)]
+#    y = lowess(x,...)$y
+#    y0 = y[1]
+#    yn= y[length(y)]
+#    x0=0
+#    xn=length(y)-1
+#    m = (yn-y0)/(xn-x0)
+#    theta = atan(abs(1/m))
+#    b = y0
+#    d = abs(y - (m*(x0:xn) + b)) * sin(theta)
+#    return(which.max(d) + 1)
+#}
+
+plotkneedle <- function(x,guess=length(x),...){
     if(is.na(guess) || guess > length(x) / 2){
         guess = length(x)/2
     }
+    guidecol <- rgb(0.5,0.5,0.5,0.5)
+    plot(x,main="Keedle Point Estimation",xlab="",ylab="",type="l")
     x = x[1:(guess*2)]
-    y = lowess(x)$y
+    tmp <- lowess(x,...)
+    y = tmp$y
+    lines(tmp$x,tmp$y,col=guidecol)
+    segments(tmp$x[1],tmp$y[1],tmp$x[nrow(df)],tmp$y[nrow(df)],col=guidecol)
     y0 = y[1]
     yn= y[length(y)]
     x0=0
     xn=length(y)-1
     m = (yn-y0)/(xn-x0)
+    theta = atan(abs(1/m))
     b = y0
-    d = abs(y - (m*(x0:xn) + b)) * asin(pi/4)
-    return(which.max(d) + 1)
+    d = abs(y - (m*(x0:xn) + b)) * sin(theta)
+    B <- which.max(d) + 1
+    segments(tmp$x[B],tmp$y[B],tmp$x[B]+max(d)*cos(theta),tmp$y[B]+max(d)*sin(theta),col=guidecol)
+    abline(v=B,lwd=3,col="red")
+    return(B)
 }
 
-burnin = kneedle(df$nLogP,burnin)
-RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 
 pdf(pdfFile,title="BC Posterior")
 
-plot(df$nLogP,type="l")
-abline(v=burnin,lwd=3,col="red")
+burnin = plotkneedle(df$nLogP,burnin)
+RowstoKeep = RowstoKeep[RowstoKeep > burnin]
+SwapIdx = SwapIdx - burnin
+SwapIdx[SwapIdx > 0]
 for(cn in col.names){
     if(cn == col.names[1] | (cn %in% names(isFixed) & !isFixed[cn])){
         tmp <- df[-(1:burnin),cn]
         plot((1:length(tmp))[!is.na(tmp)],tmp[!is.na(tmp)],type="l",main=cn,ylab="")
+        abline(v=SwapIdx,col=rgb(0.5,0.5,0.5,0.5))
     }
 }
 garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplot(df[RowstoKeep,cn],names=cn)});
