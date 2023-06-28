@@ -736,7 +736,7 @@ std::vector<uint64_t> initializePropFlags(const model::CModel & model, std::mt19
     int perLine = lineWidth / (nParams + 6);
     for(auto flag : vPropFlags){
         stream << "0b" << toBinary(flag,nParams-1) << "    ";
-        if(counter++ % perLine == 0){
+        if(counter++ % perLine == 0 && counter <= vPropFlags.size()){
             stream << "\n";
         }
     }
