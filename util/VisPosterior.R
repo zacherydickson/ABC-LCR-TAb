@@ -1,14 +1,18 @@
 args <- commandArgs(trailingOnly = T)
 
-if(length(args) < 2){
-    stop("Usage: Vis....R inFile outFile [burnin]")
+if(length(args) < 1){
+    stop("Usage: Vis....R inFile.res [burnin] (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
 logFile <- sub("res$","log",resFile)
-pdfFile <- args[2]
-burnin <- as.numeric(args[3])
+pdfFile <- sub("res$","pdf",resFile)
+evalFile <- sub("res$","eval",resFile)
+burnin <- as.numeric(args[2])
 
+if(any(resFile == c(logFile,pdfFile,evalFile))){
+    stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
+}
 
 require("vioplot")
 
@@ -74,8 +78,8 @@ for(cn in col.names[-1]){
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
 ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
 
-message(paste0(OoM,collapse=" "))
-message(paste0(ymin,collapse=" "))
+#message(paste0(OoM,collapse=" "))
+#message(paste0(ymin,collapse=" "))
 
 ##Subsample to every seventh entry for each parameter, offset by when it was being adjusted
 #df2 = df[1:(nrow(df)/n-n+1),];
@@ -168,6 +172,7 @@ str <- unlist(df[1,1:nProt])
 parts <- strsplit(str,"[;,:[\\]]",perl=T)
 initLines <- lapply(parts,function(x){paste0("Init",x[c(3,5)],"_",x[2],"\tFixed\tmu:",x[c(4,6)])})
 lines <- c(lines,sort(unlist(initLines)))
-cat(paste(lines,collapse="\n"))
-cat("\n")
 
+fileConn<-file(evalFile)
+writeLines(lines,fileConn)
+close(fileConn)
