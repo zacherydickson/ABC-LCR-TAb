@@ -1,8 +1,8 @@
 >StepwiseOU
-delta	HalfNormal	sigma:10
+delta	TruncatedNormal	mu:0	sigma:10	a:0	b:3300
 kappa	LogNormal	logmu:-0.5	logsigma:0.5
 lambda	LogNormal	logmu:-0.5	logsigma:0.5
-muOoM	TruncatedNormal	mu:-13.5	sigma:2.0	a:-inf	b:0
+muOoM	TruncatedNormal	mu:-13.5	sigma:2.0	a:-35	b:0
 sigma	HalfNormal	sigma:10
 tau	Normal	mu:0	sigma:1.0
 upsilon	Uniform	a:-1	b:1
