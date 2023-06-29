@@ -81,48 +81,28 @@ ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]);
 #message(paste0(OoM,collapse=" "))
 #message(paste0(ymin,collapse=" "))
 
-##Subsample to every seventh entry for each parameter, offset by when it was being adjusted
-#df2 = df[1:(nrow(df)/n-n+1),];
-#for (cn in col.names){
-#    df2[,cn] <- df[seq(1,nrow(df),by=n)+match(cn,col.names)-2,cn]
-#}
-#
-#df = df2;
 
-#kneedle <- function(x,guess=length(x),...){
-#    if(is.na(guess) || guess > length(x) / 2){
-#        guess = length(x)/2
-#    }
-#    x = x[1:(guess*2)]
-#    y = lowess(x,...)$y
-#    y0 = y[1]
-#    yn= y[length(y)]
-#    x0=0
-#    xn=length(y)-1
-#    m = (yn-y0)/(xn-x0)
-#    theta = atan(abs(1/m))
-#    b = y0
-#    d = abs(y - (m*(x0:xn) + b)) * sin(theta)
-#    return(which.max(d) + 1)
-#}
+windowedSumDeviation <- function(x,w){
+    z<-sapply(seq(1,length(x),by=w),function(i){
+                  y <- x[i:(i+w-1)];
+                  m <- mean(y);
+                  sum(y - m)
+        });
+    z[!is.na(z)]
+}
 
-plotkneedle <- function(x,guess=length(x),...){
+kneedle <- function(x,guess=length(x),bPlot=FALSE,...){
     if(is.na(guess) || guess > length(x) / 2){
         guess = length(x)/2
     }
-    guidecol <- rgb(0.5,0.5,0.5,0.5)
-    plot(x,main="Kneedle Point Estimation",xlab="",ylab="",type="l")
     x = x[1:(guess*2)]
     tmp <- lowess(x,...)
     y = tmp$y
-    lines(tmp$x,tmp$y,col=guidecol)
-    segments(tmp$x[1],tmp$y[1],tmp$x[nrow(df)],tmp$y[nrow(df)],col=guidecol)
     y0 = y[1]
     yn= y[length(y)]
     x0=0
     xn=length(y)-1
     m = (yn-y0)/(xn-x0)
-    theta = atan(abs(1/m))
     b = y0
     d = abs(y - (m*(x0:xn) + b))
     B <- which.max(d) + 1
@@ -132,17 +112,24 @@ plotkneedle <- function(x,guess=length(x),...){
     #x_int = (b - b2) / (m2-m)
     #y_int = x_int*m + b
     #segments(tmp$x[B],tmp$y[B],x_int,y_int,col=guidecol)
-    abline(v=B,lwd=3,col="red")
+    if(bPlot){
+        guidecol <- rgb(0.5,0.5,0.5,0.5)
+        plot(x,main="Kneedle Point Estimation",xlab="",ylab="",type="l")
+        lines(tmp$x,tmp$y,col=guidecol)
+        segments(tmp$x[1],tmp$y[1],tmp$x[nrow(df)],tmp$y[nrow(df)],col=guidecol)
+        abline(v=B,lwd=3,col="red")
+    }
     return(B)
 }
 
+lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
 
-pdf(pdfFile,title="BC Posterior")
+pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 
-burnin = plotkneedle(df$nLogP,burnin)
+burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 SwapIdx = SwapIdx - burnin
-SwapIdx[SwapIdx > 0]
+SwapIdx = SwapIdx[SwapIdx > 0]
 for(cn in col.names){
     if(cn == col.names[1] | (cn %in% names(isFixed) & !isFixed[cn])){
         tmp <- df[-(1:burnin),cn]
