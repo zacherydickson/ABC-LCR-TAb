@@ -83,6 +83,29 @@ kneedle <- function(x,guess=length(x),bPlot=FALSE,...){
     return(B)
 }
 
+densityJitter <- function(x,a=0,b=1){
+    jitter <- rep(0,length(x))
+    bNA <- is.na(x)
+    x <- x[!bNA]
+    dens <- density(x)
+    densIdx <- sapply(x,function(z){which.min(abs(dens$x - z))})
+    jitter[!bNA] <- dens$y[densIdx] / max(dens$y) * runif(length(x),a,b)
+    jitter
+}
+
+vioplotWPoints <- function(data,...){
+    vioplot(data,...,side="left",plotCentre="line")
+    if(is.null(ncol(data))){ #input is a vector
+        dJit <- 1.05 + densityJitter(data,0,0.4)
+        points(dJit,data)
+        return(NULL)
+    }
+    dJit <- lapply(data,densityJitter,b=0.4)
+    dJit <- mapply("+",dJit,1:ncol(data)+0.05,SIMPLIFY=F)
+    mapply(points,dJit,data)
+    return(NULL)
+}
+
 ######## MAIN ##############
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
@@ -110,8 +133,8 @@ for(cn in col.names[-1]){
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
 ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
-message(paste0(OoM,collapse=" "))
-message(paste0(ymin,collapse=" "))
+#message(paste0(OoM,collapse=" "))
+#message(paste0(ymin,collapse=" "))
 
 SwapIdx <- parseLog(logFile)
 lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
@@ -123,23 +146,25 @@ RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 SwapIdx = SwapIdx - burnin
 SwapIdx = SwapIdx[SwapIdx > 0]
 layout(matrix(c(rep(1,5),2),ncol=1))
+mar <- par()$mar
 for(cn in col.names){
     if(cn == col.names[1] | (cn %in% names(isFixed) & !isFixed[cn])){
         tmp <- df[-(1:burnin),cn]
-        mar <- par()$mar
         mar1 = c(0,mar[-1])
+        mar1[3] = 6.1
         par(mar = mar1)
         x <- (1:length(tmp))[!is.na(tmp)]
         y <- tmp[!is.na(tmp)]
         plot(x,y,type="l",main=cn,ylab="",xaxt="n",xlab="")
-        mar2 = mar; mar2[3]=0
+        mar2 = mar; mar2[0] = 2.1; mar2[3]=0
         par(mar = mar2)
         plot(x,y,type="n",yaxt="n",ylab="swaps",xlab = "")
         abline(v=SwapIdx,col=rgb(0.5,0.5,0.5,0.5))
     }
 }
 layout(matrix(1,ncol=1))
-garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplot(df[RowstoKeep,cn],names=cn)});
+par(mar = mar)
+garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep,cn],names=cn)});
 
 garbage <- dev.off()
 
