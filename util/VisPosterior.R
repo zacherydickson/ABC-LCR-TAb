@@ -72,8 +72,10 @@ for(cn in col.names[-1]){
 
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
-ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); round(log10(abs(y)),0)*sign(y)})
+ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
 
+message(paste0(OoM,collapse=" "))
+message(paste0(ymin,collapse=" "))
 
 ##Subsample to every seventh entry for each parameter, offset by when it was being adjusted
 #df2 = df[1:(nrow(df)/n-n+1),];
