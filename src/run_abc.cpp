@@ -853,13 +853,9 @@ int main(int argc, char ** argv){
             double temp_j = 1.0 / (1 + tempIncrement.getValue() * chain_j);
             double nLogP_i = vChains[chain_i]->getModel().getNLogP();
             double nLogP_j = vChains[chain_j]->getModel().getNLogP();
-            double sd_i = vChains[chain_i]->getEvaluationSD(); 
-            double sd_j = vChains[chain_j]->getEvaluationSD(); 
-            double sd_p = std::sqrt(std::pow(sd_i,2.0) + std::pow(sd_j,2.0));
-            double sd_correction = stats::NormalQuantile(0.025) * sd_p;
             //Order is swapped to account for the negation of the logJP
-            double logRatio = temp_i * (nLogP_i - nLogP_j + sd_correction);
-            logRatio += temp_j * (nLogP_j - nLogP_i - sd_correction);
+            double logRatio = temp_i * (nLogP_i - nLogP_j);
+            logRatio += temp_j * (nLogP_j - nLogP_i);
             double accept = (logRatio >= 0) ? 1.0 : std::exp(logRatio); 
             std::string result = "Reject";
             if(std::generate_canonical<double,10>(gen) < accept){
@@ -868,7 +864,7 @@ int main(int argc, char ** argv){
                 result = "Accept";
             }
             if(tempIncrement.update(tempUpdate,gen)){
-                logger::Log("Temperature increment updated to %0.04f",tempIncrement.getValue());
+                logger::Log("Temperature increment updated to %0.04f",logger::INFO,tempIncrement.getValue());
             }
             logger::Log("%s with p=%0.1f%%",logger::INFO,result.c_str(),accept*100);
         }

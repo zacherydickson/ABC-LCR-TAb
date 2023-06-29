@@ -16,15 +16,8 @@ if(any(resFile == c(logFile,pdfFile,evalFile))){
 
 require("vioplot")
 
-df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
-df <- df[-1,]
-nProt <- max(grep("Prot",names(df)))
-n = nProt + sum(names(df)=="") + 1;
-col.names = names(df)[-(1:n)];
-modelName <- names(df)[nProt+1]
-for (cn in col.names) {
-    df[,cn] <- as.numeric(sapply(strsplit(df[,cn]," "),"[",2))
-}
+
+######## FUNCTIONS ##############
 
 parseLog <- function(file){
     lines <- scan(file,what="character",sep="\n")
@@ -43,43 +36,11 @@ parseLog <- function(file){
     return (AcceptCountAtSwap + InitialAcceptCount)
 }
 
-SwapIdx <- parseLog(logFile)
-
-
-#On the assumption that The leftmost paramter is proposed first, and on each acceptance the
-#next pramter is proposed
-#If every column, except the first is shifted up by its paramter index, then all actual
-#acceptances will be in the same row, and every nParamth row can be kept
-#index = 1;
-#for(i in 1:(n-1)){
-#    cn = col.names[i+2]
-#    df[,cn] = df[c((i+1):nrow(df),1:i),cn]
-#}
-
 #Effective Sample Size = n / (1 + 2*Σ_k cor@lag(k))
 lagcor <- function(x,k){
     idx <- (1+k):length(x)
     cor(x[idx],x[idx-k])
 }
-#RowstoKeep = seq(1,nrow(df),by=n);
-RowstoKeep = seq(1,nrow(df));
-isFixed = setNames(rep(FALSE,length(col.names[-1])),col.names[-1])
-
-for(cn in col.names[-1]){
-    tmp <- rle(df[,cn])
-    if(length(tmp$values) == 1){
-        isFixed[cn]=TRUE
-    }
-    tmp <- lapply(1:length(tmp$values),function(i){c(tmp$values[i],rep(NA,tmp$lengths[i]-1))})
-    df[,cn] = unlist(tmp)
-}
-
-
-OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
-ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
-
-#message(paste0(OoM,collapse=" "))
-#message(paste0(ymin,collapse=" "))
 
 
 windowedSumDeviation <- function(x,w){
@@ -122,6 +83,37 @@ kneedle <- function(x,guess=length(x),bPlot=FALSE,...){
     return(B)
 }
 
+######## MAIN ##############
+
+df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
+df <- df[-1,]
+nProt <- max(grep("Prot",names(df)))
+n = nProt + sum(names(df)=="") + 1;
+col.names = names(df)[-(1:n)];
+modelName <- names(df)[nProt+1]
+for (cn in col.names) {
+    df[,cn] <- as.numeric(sapply(strsplit(df[,cn]," "),"[",2))
+}
+
+RowstoKeep = seq(1,nrow(df));
+isFixed = setNames(rep(FALSE,length(col.names[-1])),col.names[-1])
+
+for(cn in col.names[-1]){
+    tmp <- rle(df[,cn])
+    if(length(tmp$values) == 1){
+        isFixed[cn]=TRUE
+    }
+    tmp <- lapply(1:length(tmp$values),function(i){c(tmp$values[i],rep(NA,tmp$lengths[i]-1))})
+    df[,cn] = unlist(tmp)
+}
+
+
+OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
+ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
+message(paste0(OoM,collapse=" "))
+message(paste0(ymin,collapse=" "))
+
+SwapIdx <- parseLog(logFile)
 lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
 
 pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
@@ -130,13 +122,23 @@ burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 SwapIdx = SwapIdx - burnin
 SwapIdx = SwapIdx[SwapIdx > 0]
+layout(matrix(c(rep(1,5),2),ncol=1))
 for(cn in col.names){
     if(cn == col.names[1] | (cn %in% names(isFixed) & !isFixed[cn])){
         tmp <- df[-(1:burnin),cn]
-        plot((1:length(tmp))[!is.na(tmp)],tmp[!is.na(tmp)],type="l",main=cn,ylab="")
+        mar <- par()$mar
+        mar1 = c(0,mar[-1])
+        par(mar = mar1)
+        x <- (1:length(tmp))[!is.na(tmp)]
+        y <- tmp[!is.na(tmp)]
+        plot(x,y,type="l",main=cn,ylab="",xaxt="n",xlab="")
+        mar2 = mar; mar2[3]=0
+        par(mar = mar2)
+        plot(x,y,type="n",yaxt="n",ylab="swaps",xlab = "")
         abline(v=SwapIdx,col=rgb(0.5,0.5,0.5,0.5))
     }
 }
+layout(matrix(1,ncol=1))
 garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplot(df[RowstoKeep,cn],names=cn)});
 
 garbage <- dev.off()
