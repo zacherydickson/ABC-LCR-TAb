@@ -1,35 +1,53 @@
 #ifndef __RECORD__HPP
 #define __RECORD__HPP
 
-#include <map>
+#include <Eigen/Core>
 #include "Model.hpp"
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace record {
 
-    typedef std::map<std::string,double> ValueMap;
-    typedef std::map<std::String,double> ValueVectorMap;
+    typedef std::unordered_map<std::string,double> ValueVectorMap;
+    typedef std::unordered_set<std::string> StringSet;
 
 
     //TODO: Change implementation to judge burnin just off of the nlogP
     class CRecord{
         //Cons/Destruction
-        CSample() {}
+        CRecord() = delete;
+        CRecord(const std::vector<std::string> & vParamNames);
+        //Static Members
+        protected:
+            static double alpha;
+            static double epsilon;
         //Members
         protected:
+            size_t nSamples;
             ValueVectorMap vSamples;
+            std::vector<double> vLikelihoods;
+        //Const Members
+        public:
+            const double W;
+        protected:
+            const size_t nParams;
+            const StringSet sParamNames;
         //Static Methods
         protected:
-            size_t estimateBurnin(const std::vector<double> & values) const;
-            double estimateEffectiveSampleSize(const std::vector<double> & values) const;
-            size_t kneedle(const std::vector<double> & values);
-            std::vector<double> lowess(const std::vector<double> & values, double localityFactor);
+            static int CalculateThreshold(size_t nParam);
+            static double GetAlpha(){return CRecord::alpha;}
+            static double GetEpsilon(){return CRecord::epsilon;}
+            static void TuneThreshold(double alpha, double epsilon);
         //Methods
         public:
-            void addSample(const model::CModel & model) {addSample(model.getParamMap());}
-            void addSample(const model::ParamMap & params);
-            ValueMap estimateEffectiveSampleSizes();
+            void addSample(const model::CModel & model);
+            bool isComplete() const;
+            size_t size() const {return this->nSamples;}
         protected:
+            double calculateSampleCovarianceDeterminant() const;
+            double calculateMultivariateBatchMeansDeterminant() const;
+            double estimateEffectiveSampleSize() const;
     };
 
 }

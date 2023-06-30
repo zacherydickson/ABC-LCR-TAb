@@ -57,7 +57,8 @@ kneedle <- function(x,guess=length(x),bPlot=FALSE,...){
         guess = length(x)/2
     }
     x = x[1:(guess*2)]
-    tmp <- lowess(x,...)
+    #tmp <- lowess(x,...)
+    tmp <- list(y = x, x = 1:length(x))
     y = tmp$y
     y0 = y[1]
     yn= y[length(y)]
@@ -132,7 +133,7 @@ for(cn in col.names[-1]){
 
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
-ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
+ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
 #message(paste0(OoM,collapse=" "))
 #message(paste0(ymin,collapse=" "))
 
