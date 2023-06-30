@@ -1,26 +1,23 @@
 args <- commandArgs(trailingOnly = T)
 
-if(length(args) < 2){
-    stop("Usage: Vis....R inFile outFile [burnin]")
+if(length(args) < 1){
+    stop("Usage: Vis....R inFile.res [burnin] (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
 logFile <- sub("res$","log",resFile)
-pdfFile <- args[2]
-burnin <- as.numeric(args[3])
+pdfFile <- sub("res$","pdf",resFile)
+evalFile <- sub("res$","eval",resFile)
+burnin <- as.numeric(args[2])
 
+if(any(resFile == c(logFile,pdfFile,evalFile))){
+    stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
+}
 
 require("vioplot")
 
-df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
-df <- df[-1,]
-nProt <- max(grep("Prot",names(df)))
-n = nProt + sum(names(df)=="") + 1;
-col.names = names(df)[-(1:n)];
-modelName <- names(df)[nProt+1]
-for (cn in col.names) {
-    df[,cn] <- as.numeric(sapply(strsplit(df[,cn]," "),"[",2))
-}
+
+######## FUNCTIONS ##############
 
 parseLog <- function(file){
     lines <- scan(file,what="character",sep="\n")
@@ -39,25 +36,88 @@ parseLog <- function(file){
     return (AcceptCountAtSwap + InitialAcceptCount)
 }
 
-SwapIdx <- parseLog(logFile)
-
-
-#On the assumption that The leftmost paramter is proposed first, and on each acceptance the
-#next pramter is proposed
-#If every column, except the first is shifted up by its paramter index, then all actual
-#acceptances will be in the same row, and every nParamth row can be kept
-#index = 1;
-#for(i in 1:(n-1)){
-#    cn = col.names[i+2]
-#    df[,cn] = df[c((i+1):nrow(df),1:i),cn]
-#}
-
 #Effective Sample Size = n / (1 + 2*Σ_k cor@lag(k))
 lagcor <- function(x,k){
     idx <- (1+k):length(x)
     cor(x[idx],x[idx-k])
 }
-#RowstoKeep = seq(1,nrow(df),by=n);
+
+
+windowedSumDeviation <- function(x,w){
+    z<-sapply(seq(1,length(x),by=w),function(i){
+                  y <- x[i:(i+w-1)];
+                  m <- mean(y);
+                  sum(y - m)
+        });
+    z[!is.na(z)]
+}
+
+kneedle <- function(x,guess=length(x),bPlot=FALSE,...){
+    if(is.na(guess) || guess > length(x) / 2){
+        guess = length(x)/2
+    }
+    x = x[1:(guess*2)]
+    tmp <- lowess(x,...)
+    y = tmp$y
+    y0 = y[1]
+    yn= y[length(y)]
+    x0=0
+    xn=length(y)-1
+    m = (yn-y0)/(xn-x0)
+    b = y0
+    d = abs(y - (m*(x0:xn) + b))
+    B <- which.max(d) + 1
+    #Get the equation of line for the perpendicular at point B
+    #m2 = -1/m
+    #b2 = tmp$y[B] - m2*tmp$x[B]
+    #x_int = (b - b2) / (m2-m)
+    #y_int = x_int*m + b
+    #segments(tmp$x[B],tmp$y[B],x_int,y_int,col=guidecol)
+    if(bPlot){
+        guidecol <- rgb(0.5,0.5,0.5,0.5)
+        plot(x,main="Kneedle Point Estimation",xlab="",ylab="",type="l")
+        lines(tmp$x,tmp$y,col=guidecol)
+        segments(tmp$x[1],tmp$y[1],tmp$x[nrow(df)],tmp$y[nrow(df)],col=guidecol)
+        abline(v=B,lwd=3,col="red")
+    }
+    return(B)
+}
+
+densityJitter <- function(x,a=0,b=1){
+    jitter <- rep(0,length(x))
+    bNA <- is.na(x)
+    x <- x[!bNA]
+    dens <- density(x)
+    densIdx <- sapply(x,function(z){which.min(abs(dens$x - z))})
+    jitter[!bNA] <- dens$y[densIdx] / max(dens$y) * runif(length(x),a,b)
+    jitter
+}
+
+vioplotWPoints <- function(data,...){
+    vioplot(data,...,side="left",plotCentre="line")
+    if(is.null(ncol(data))){ #input is a vector
+        dJit <- 1.05 + densityJitter(data,0,0.4)
+        points(dJit,data)
+        return(NULL)
+    }
+    dJit <- lapply(data,densityJitter,b=0.4)
+    dJit <- mapply("+",dJit,1:ncol(data)+0.05,SIMPLIFY=F)
+    mapply(points,dJit,data)
+    return(NULL)
+}
+
+######## MAIN ##############
+
+df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
+df <- df[-1,]
+nProt <- max(grep("Prot",names(df)))
+n = nProt + sum(names(df)=="") + 1;
+col.names = names(df)[-(1:n)];
+modelName <- names(df)[nProt+1]
+for (cn in col.names) {
+    df[,cn] <- as.numeric(sapply(strsplit(df[,cn]," "),"[",2))
+}
+
 RowstoKeep = seq(1,nrow(df));
 isFixed = setNames(rep(FALSE,length(col.names[-1])),col.names[-1])
 
@@ -72,74 +132,39 @@ for(cn in col.names[-1]){
 
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
-ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- min(x[!is.na(x)]); round(log10(abs(y)),0)*sign(y)})
+ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
+#message(paste0(OoM,collapse=" "))
+#message(paste0(ymin,collapse=" "))
 
+SwapIdx <- parseLog(logFile)
+lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
 
-##Subsample to every seventh entry for each parameter, offset by when it was being adjusted
-#df2 = df[1:(nrow(df)/n-n+1),];
-#for (cn in col.names){
-#    df2[,cn] <- df[seq(1,nrow(df),by=n)+match(cn,col.names)-2,cn]
-#}
-#
-#df = df2;
+pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 
-#kneedle <- function(x,guess=length(x),...){
-#    if(is.na(guess) || guess > length(x) / 2){
-#        guess = length(x)/2
-#    }
-#    x = x[1:(guess*2)]
-#    y = lowess(x,...)$y
-#    y0 = y[1]
-#    yn= y[length(y)]
-#    x0=0
-#    xn=length(y)-1
-#    m = (yn-y0)/(xn-x0)
-#    theta = atan(abs(1/m))
-#    b = y0
-#    d = abs(y - (m*(x0:xn) + b)) * sin(theta)
-#    return(which.max(d) + 1)
-#}
-
-plotkneedle <- function(x,guess=length(x),...){
-    if(is.na(guess) || guess > length(x) / 2){
-        guess = length(x)/2
-    }
-    guidecol <- rgb(0.5,0.5,0.5,0.5)
-    plot(x,main="Keedle Point Estimation",xlab="",ylab="",type="l")
-    x = x[1:(guess*2)]
-    tmp <- lowess(x,...)
-    y = tmp$y
-    lines(tmp$x,tmp$y,col=guidecol)
-    segments(tmp$x[1],tmp$y[1],tmp$x[nrow(df)],tmp$y[nrow(df)],col=guidecol)
-    y0 = y[1]
-    yn= y[length(y)]
-    x0=0
-    xn=length(y)-1
-    m = (yn-y0)/(xn-x0)
-    theta = atan(abs(1/m))
-    b = y0
-    d = abs(y - (m*(x0:xn) + b)) * sin(theta)
-    B <- which.max(d) + 1
-    segments(tmp$x[B],tmp$y[B],tmp$x[B]+max(d)*cos(theta),tmp$y[B]+max(d)*sin(theta),col=guidecol)
-    abline(v=B,lwd=3,col="red")
-    return(B)
-}
-
-
-pdf(pdfFile,title="BC Posterior")
-
-burnin = plotkneedle(df$nLogP,burnin)
+burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 SwapIdx = SwapIdx - burnin
-SwapIdx[SwapIdx > 0]
+SwapIdx = SwapIdx[SwapIdx > 0]
+layout(matrix(c(rep(1,5),2),ncol=1))
+mar <- par()$mar
 for(cn in col.names){
     if(cn == col.names[1] | (cn %in% names(isFixed) & !isFixed[cn])){
         tmp <- df[-(1:burnin),cn]
-        plot((1:length(tmp))[!is.na(tmp)],tmp[!is.na(tmp)],type="l",main=cn,ylab="")
+        mar1 = c(0,mar[-1])
+        mar1[3] = 6.1
+        par(mar = mar1)
+        x <- (1:length(tmp))[!is.na(tmp)]
+        y <- tmp[!is.na(tmp)]
+        plot(x,y,type="l",main=cn,ylab="",xaxt="n",xlab="")
+        mar2 = mar; mar2[0] = 2.1; mar2[3]=0
+        par(mar = mar2)
+        plot(x,y,type="n",yaxt="n",ylab="swaps",xlab = "")
         abline(v=SwapIdx,col=rgb(0.5,0.5,0.5,0.5))
     }
 }
-garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplot(df[RowstoKeep,cn],names=cn)});
+layout(matrix(1,ncol=1))
+par(mar = mar)
+garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep,cn],names=cn)});
 
 garbage <- dev.off()
 
@@ -161,6 +186,7 @@ str <- unlist(df[1,1:nProt])
 parts <- strsplit(str,"[;,:[\\]]",perl=T)
 initLines <- lapply(parts,function(x){paste0("Init",x[c(3,5)],"_",x[2],"\tFixed\tmu:",x[c(4,6)])})
 lines <- c(lines,sort(unlist(initLines)))
-cat(paste(lines,collapse="\n"))
-cat("\n")
 
+fileConn<-file(evalFile)
+writeLines(lines,fileConn)
+close(fileConn)

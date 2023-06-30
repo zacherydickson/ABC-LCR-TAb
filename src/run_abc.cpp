@@ -696,6 +696,54 @@ size_t ResumeChains(std::vector<std::unique_ptr<chain::CChain>> & vChains, const
     return vModelStr.size(); 
 }
 
+std::string toBinary(uint64_t flag, size_t bits){
+    std::stringstream stream;
+    for(int bit = bits; bit >= 0; bit--){
+        stream << ((flag >> bit) & 1);
+    }
+    return stream.str();
+}
+
+std::vector<uint64_t> initializePropFlags(const model::CModel & model, std::mt19937 & gen){
+    logger::Log("Initializing Proposal Order...",logger::DEBUG);
+    const std::vector<std::string> vParamNames = model.getParamNames();
+    const model::ParamMap & params = model.getParamMap();
+    size_t nParams = params.size();
+    int nParamCombos = pow(2.0,nParams)-1;
+    std::vector<uint64_t> vPropFlags;
+    //Determine which parameters if any are fixed
+    uint64_t fixedMask = 0;
+    for(int bit = 0; bit < nParams; bit++){
+        if(!params.at(vParamNames[bit]).isFixed()) {
+            continue;
+        }
+        fixedMask |= 1 << bit;
+    }
+    //Get all valid proposal Flags (i.e only proposing on non-fixed parameters)
+    for(int i = 0; i < nParamCombos; i++){
+        uint64_t flag = i+1;
+        if(flag & fixedMask){ //Skip the combo if it includes a fixed parameter
+            continue;
+        }
+        vPropFlags.push_back(flag);
+    }
+    //Randomize the order of the proposalFlags
+    std::shuffle(std::begin(vPropFlags),std::end(vPropFlags),gen);
+    //Log the Proposal Flag Vector 
+    std::stringstream stream;
+    int counter = 1;
+    int lineWidth = 80;
+    int perLine = lineWidth / (nParams + 6);
+    for(auto flag : vPropFlags){
+        stream << "0b" << toBinary(flag,nParams-1) << "    ";
+        if(counter++ % perLine == 0 && counter <= vPropFlags.size()){
+            stream << "\n";
+        }
+    }
+    logger::Log("Proposals will occur in the order:\n%s",logger::INFO,stream.str().c_str());
+    return vPropFlags;
+}
+
 /*### MAIN ###################################################################*/
 
 
@@ -757,12 +805,14 @@ int main(int argc, char ** argv){
     //Set up Adaptive Chain Heating;
     aparam::CAdaptiveParameter tempIncrement(opts.tgtSwpRate,opts.tempHorizon,opts.initTempInc,0,pow(10,9));
 
-    int nParamCombos = pow(2.0,nParams)-1;
+
+    //Initialize Vector of bitVectors which specify the proposals to make
+    std::vector<uint64_t> vPropFlags = initializePropFlags(vChains[0]->getModel(),gen);
 
     while(acceptCount < opts.sampleSize){
-        uint64_t propFlags = ((++iteration - 1) % nParamCombos) + 1;
+        uint64_t propFlags = vPropFlags[iteration++ % vPropFlags.size()];
         logger::Log("===Iteration %d (%d/%d)",logger::INFO,iteration,acceptCount,opts.sampleSize);
-        logger::Log("Proposing changes on 0x%0x ...",logger::INFO,propFlags);
+        logger::Log("Proposing changes on 0b%s ...",logger::INFO,toBinary(propFlags,nParams-1).c_str());
 
         //Determine which parameters are being modified
         std::unordered_set<std::string> proposalParamSet;
@@ -803,13 +853,9 @@ int main(int argc, char ** argv){
             double temp_j = 1.0 / (1 + tempIncrement.getValue() * chain_j);
             double nLogP_i = vChains[chain_i]->getModel().getNLogP();
             double nLogP_j = vChains[chain_j]->getModel().getNLogP();
-            double sd_i = vChains[chain_i]->getEvaluationSD(); 
-            double sd_j = vChains[chain_j]->getEvaluationSD(); 
-            double sd_p = std::sqrt(std::pow(sd_i,2.0) + std::pow(sd_j,2.0));
-            double sd_correction = stats::NormalQuantile(0.025) * sd_p;
             //Order is swapped to account for the negation of the logJP
-            double logRatio = temp_i * (nLogP_i - nLogP_j + sd_correction);
-            logRatio += temp_j * (nLogP_j - nLogP_i - sd_correction);
+            double logRatio = temp_i * (nLogP_i - nLogP_j);
+            logRatio += temp_j * (nLogP_j - nLogP_i);
             double accept = (logRatio >= 0) ? 1.0 : std::exp(logRatio); 
             std::string result = "Reject";
             if(std::generate_canonical<double,10>(gen) < accept){
@@ -818,7 +864,7 @@ int main(int argc, char ** argv){
                 result = "Accept";
             }
             if(tempIncrement.update(tempUpdate,gen)){
-                logger::Log("Temperature increment updated to %0.04f",tempIncrement.getValue());
+                logger::Log("Temperature increment updated to %0.04f",logger::INFO,tempIncrement.getValue());
             }
             logger::Log("%s with p=%0.1f%%",logger::INFO,result.c_str(),accept*100);
         }

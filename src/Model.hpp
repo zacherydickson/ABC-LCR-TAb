@@ -182,7 +182,7 @@ namespace model {
             double getNLogP() const;
             double getMaxVectorDist(const GradientMap & gradient) const;
             double getMinEval() const;
-            const ParamMap & getParamMap() {return this->parameters;}
+            const ParamMap & getParamMap() const {return this->parameters;}
             std::unique_ptr<CModel> goldenSearch(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const;
             virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const;
             bool isFixed() const {return this->bFixed;}
