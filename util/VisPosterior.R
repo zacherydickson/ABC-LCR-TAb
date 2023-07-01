@@ -57,8 +57,7 @@ kneedle <- function(x,guess=length(x),bPlot=FALSE,...){
         guess = length(x)/2
     }
     x = x[1:(guess*2)]
-    #tmp <- lowess(x,...)
-    tmp <- list(y = x, x = 1:length(x))
+    tmp <- lowess(x,...)
     y = tmp$y
     y0 = y[1]
     yn= y[length(y)]

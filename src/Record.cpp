@@ -12,6 +12,7 @@ namespace record {
         sParamNames(vParamNames.begin(),vParamNames.end()),
         W(CRecord::CalculateThreshold(vParamNames.size())) 
     {
+        sampleMat.resize(this->nParams,0);
     }
 
     CRecord::CRecord(const model::CModel & model) :
@@ -34,6 +35,15 @@ namespace record {
         double num2 = stats::ChiSqQuantile(1-CRecord::alpha,nParam);
         double denom2 = std::pow(CRecord::epsilon,2.0);
         return num1 /denom1 * num2 / denom2;
+    }
+
+
+    Eigen::MatrixXXd CRecord::CalculateSampleCovariance(const Eigen::MatrixXXd & data){
+        auto mean = data.rowwise().mean();
+        auto unitRow = Eigen::MatrixXd::Constant(1,this->nParams,1.0);
+        auto demeaned = this->sampleMat - mean * unitRow;
+        auto sampleCoV =  demeaned * demeaned.transpose() / (this->nSamples - 1.0);
+        return sampleCoV;
     }
 
     void CRecord::TuneThreshold(double alpha, double epsilon){
@@ -63,10 +73,11 @@ namespace record {
         if(!bValid){
             throw std_invalid_argument("Attempt to add a sample to CRecord with different model than that with which the record  was initialized");
         }
-        for(const auto & pair : params){
-            this->vSamples[pair.first].push_back(pair.second.value);
+        this->sampleMat.resize(NoChange_t,++(this->nSamples));
+        int row = 0;
+        for(const std::string & name : this->sParamNames){
+            this->sampleMat(row++,this->nSamples-1) = params.at(name).value;
         }
-        this->nSamples++;
     }
 
     bool CRecord::isComplete() const {
@@ -83,14 +94,13 @@ namespace record {
     // Methods, CRecord, protected
 
     double CRecord::calculateSampleCovariance() const {
-        Eigen::Matrix<double, this->nParam, this->nParam > sampleCoV();
-        //TODO:
+        auto sampleCov = CRecord::CalculateSampleCovariance(this->sampleMat);
         return sampleCov.determinant();
     }
 
     double CRecord::calculateMultivariateBatchMeans() const {
         //TODO:
-        Eigen::Matrix<double, Dynamic, Dynamic> sampleCoV();
+        Eigen::MatrixXd sampleCoV();
         return mBM.determinant();
     }
 

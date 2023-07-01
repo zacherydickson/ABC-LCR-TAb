@@ -10,7 +10,7 @@
 namespace record {
 
     typedef std::unordered_map<std::string,double> ValueVectorMap;
-    typedef std::unordered_set<std::string> StringSet;
+    typedef std::set<std::string> StringSet;
 
 
     //TODO: Change implementation to judge burnin just off of the nlogP
@@ -25,7 +25,7 @@ namespace record {
         //Members
         protected:
             size_t nSamples;
-            ValueVectorMap vSamples;
+            Eigen::MatrixXd sampleMat;
             std::vector<double> vLikelihoods;
         //Const Members
         public:
@@ -36,6 +36,7 @@ namespace record {
         //Static Methods
         protected:
             static int CalculateThreshold(size_t nParam);
+            Eigen::MatrixXXd CalculateSampleCovariance(const Eigen::MatrixXXd & data);
             static double GetAlpha(){return CRecord::alpha;}
             static double GetEpsilon(){return CRecord::epsilon;}
             static void TuneThreshold(double alpha, double epsilon);
