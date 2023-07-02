@@ -106,6 +106,19 @@ namespace prior {
         }
     }
 
+
+    std::vector<std::string> CPrior::getModelParameterNames(bool bIncludeFixed) const{
+        std::mt19937 gen;
+        auto ptr = this->GenerateModel(gen);
+        std::vector<std::string> vParamNames;
+        for(const auto & pair : ptr->getParamMap()){
+            if(bIncludeFixed || !pair.second.isFixed()){
+                vParamNames.push_back(pair.first);
+            }
+        }
+        return vParamNames;
+    }
+
     std::ostream & CPrior::output(std::ostream & os) const {
         os << "mType{" << this->modelType << "}"; 
         for(int i = 0; i < this->vInitStates.size(); i++){

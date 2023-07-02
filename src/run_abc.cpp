@@ -20,6 +20,7 @@
 #include <memory>
 #include "optionparser.h"
 #include "PriorIO.hpp"
+#include "Record.hpp"
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -36,8 +37,8 @@ int logger::Verbosity = 2;
 const int MaxThreads = (std::thread::hardware_concurrency()) ? std::thread::hardware_concurrency() : 1;
 
 struct Opts {
-    Opts() : burnin(100), sampleSize(1000), simSize(200), nChains(1), nThreads(1), seed((long unsigned int)std::time(0)), tgtSwpRate(0.5), tempHorizon(50), initTempInc(0.1) {}
-    int burnin, simSize, sampleSize, nChains, nThreads, tempHorizon;
+    Opts() : maxSampleSize(0), simSize(200), nChains(1), nThreads(1), seed((long unsigned int)std::time(0)), tgtSwpRate(0.5), tempHorizon(50), initTempInc(0.1) {}
+    int simSize, maxSampleSize, nChains, nThreads, tempHorizon;
     long unsigned int seed;
     double tgtSwpRate,initTempInc;
     std::string obs, prior, resume, tree;
@@ -86,7 +87,7 @@ std::string join(const std::vector<std::string> & v, std::string delim = ","/*, 
 
 /*### HELP AND USAGE #########################################################*/
 
-enum optionIndex{UNKNOWN,HELP,BURNIN,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
+enum optionIndex{UNKNOWN,HELP,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RECORDALPHA,RECORDEPSILON,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
 
 struct Arg: public option::Arg{
     static void printError(const char* msg1, const option::Option& opt, const char* msg2){
@@ -114,6 +115,17 @@ struct Arg: public option::Arg{
         if (msg) printError("Option '", option, "' requires an natural number argument\n");
         return option::ARG_ILLEGAL;
     }
+
+    static option::ArgStatus Whole(const option::Option& option, bool msg){
+        char* endptr = 0;
+        if (option.arg != 0 && strtol(option.arg, &endptr, 10) >= 0){};
+        if (endptr != option.arg && *endptr == 0)
+          return option::ARG_OK;
+        
+        if (msg) printError("Option '", option, "' requires a whole number argument\n");
+        return option::ARG_ILLEGAL;
+    }
+
 
     static option::ArgStatus String(const option::Option& option, bool msg){
         if (option.arg != 0){return option::ARG_OK;};
@@ -176,7 +188,6 @@ struct Arg: public option::Arg{
 
 const std::map<optionIndex,std::string> longOptionNames = {
     {HELP,"help"},
-    {BURNIN,"burn-in"},
     {CGDISABLE,"enable-gradient-descent"},
     {CPSHORIZON,"proposal-scaling-horizon"},
     {CPSINIT,"initial-proposal-scale"},
@@ -195,8 +206,10 @@ const std::map<optionIndex,std::string> longOptionNames = {
     {OBSFILE,"observations"},
     {PRIORFILE,"prior"},
     {QUIET,"quiet"},
+    {RECORDALPHA,"parameter-confidence"},
+    {RECORDEPSILON,"parameter-precision"},
     {RESUME,"resume-from"},
-    {SAMPLESIZE,"samples"},
+    {SAMPLESIZE,"max-samples"},
     {SEED,"seed"},
     {SIMSIZE,"simulation-count"},
     {THORIZON,"swap-horizon"},
@@ -207,7 +220,6 @@ const std::map<optionIndex,std::string> longOptionNames = {
 };
 
 const std::map<optionIndex,std::string> usageMessages = {
-    {BURNIN,"[" + std::to_string(defaultOpts.burnin) + "] --" + longOptionNames.at(BURNIN) + ", -b [1,∞)εZ \tThe number of accepted parameter sets to initially ignore."},
     {CPSHORIZON,"[" + std::to_string(chain::CChain::GetPSHorizon()) + "] --" + longOptionNames.at(CPSHORIZON) + " [1,∞)εZ \tThe number of iterations between updates to scaling factor for parameter proposals."},
     {CPSINIT,"[" + join(chain::CChain::GetPSInit()) + "] --" + longOptionNames.at(CPSINIT) + " (0,∞)εR \tThe inital scale factor for parameter proposals. Can be either a single value applied to all parameters or a comma separated list which is recycled as necessary. parameter specific scales are processed in alphabetical order of parameter name"},
     {CPSOOM,"[" + std::to_string(chain::CChain::GetPSOoM()) + "] --" + longOptionNames.at(CPSOOM) + " (0,∞)εR \tThe bounds on the scale factor for parameter proposals in base 10 orders of magnitude."},
@@ -227,10 +239,12 @@ const std::map<optionIndex,std::string> usageMessages = {
     {PRIORFILE,"--" + longOptionNames.at(PRIORFILE) + ", -p path \tA file specifying the prior(s) to use. Each prior's first line is \">PriorName\". Each subsequent line is in the format key\\tvalue. values may be comma separated lists. Use --priorlist and --default-prior for more information."},
     {OBSFILE,"--" + longOptionNames.at(OBSFILE) + ", -o path\tA tab delimited file specifying the observed values at the tree tips. The file will have no header and columns of nodeID, abundance, and length."},
     {QUIET, " --" + longOptionNames.at(QUIET) + ", -q \tDecrement the level of verbosity."},
+    {RECORDALPHA, "[" + std::to_string(record::CRecord::GetAlpha()) + "] --" + longOptionNames.at(RECORDALPHA) + ", -a (0,1]εR \tConfidence level for Parameter estimates."},
+    {RECORDEPSILON, "[" + std::to_string(record::CRecord::GetEpsilon()) + "] --" + longOptionNames.at(RECORDEPSILON) + ", -e (0,1]εR \tRelative size of MCMC error to likelihood variance."},
     {RESUME,"--" + longOptionNames.at(RESUME) + ", -r path \tA results file from a previous run, will resume with the number of accepted samples from the file; All chains will start from the same point. Adaptive scaling parameters will be reset."},
     {SEED, "--" + longOptionNames.at(SEED) + " [1,∞)εZ \tA seed for the random number generator"},
     {SIMSIZE, "[" + std::to_string(defaultOpts.simSize) + "] --" + longOptionNames.at(SIMSIZE) + ", -s [1,∞)εZ \tThe number of simulations to run for a generated set of model parameters. Each additional simulation improves the estimation of the distribution of values at tree nodes at the cost of run time."},
-    {SAMPLESIZE, "[" + std::to_string(defaultOpts.sampleSize) + "] --" + longOptionNames.at(SAMPLESIZE) + ", -n [1,∞)εZ \tThe number of accepted paramter sets at which to stop the calculation and estimate posteriors."},
+    {SAMPLESIZE, "[" + std::to_string(defaultOpts.maxSampleSize) + "] --" + longOptionNames.at(SAMPLESIZE) + ", -n [0,∞)εZ \tThe maximum number of accepted paramter sets (0 indicates no maximum)."},
     {TRATE,"[" + std::to_string(defaultOpts.tgtSwpRate) + "] --" + longOptionNames.at(TRATE) + " (0,1]εR \tThe target proportion of proposed swaps which are accepted."},
     {TINIT,"[" + std::to_string(defaultOpts.initTempInc) + "] --" + longOptionNames.at(TINIT) + " (0,∞)εR \tThe initial increment in chain temperature between subsequent chains."},
     {THORIZON,"[" + std::to_string(defaultOpts.tempHorizon) + "] --" + longOptionNames.at(THORIZON) + " [1,∞)εZ \tThe number of iterations between attempts to make swaps between chains; also the number of attempted swaps between updates to the temperature increment."},
@@ -247,9 +261,10 @@ const option::Descriptor usage [] = {
     {TREEFILE,0, "t",longOptionNames.at(TREEFILE).c_str(), Arg::String,usageMessages.at(TREEFILE).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "\tNote: All nodeIDs in the observations must be node labes in the given tree"},
     {UNKNOWN,0, "","",option::Arg::None, "===MCMC OPTIONS"},
-    {BURNIN,0,"b",longOptionNames.at(BURNIN).c_str(),Arg::Natural,usageMessages.at(BURNIN).c_str()},
+    {RECORDALPHA,0,"a",longOptionNames.at(RECORDALPHA).c_str(),Arg::NonZeroProportion,usageMessages.at(RECORDALPHA).c_str()},
     {NCHAINS,0,"c",longOptionNames.at(NCHAINS).c_str(),Arg::Natural,usageMessages.at(NCHAINS).c_str()},
-    {SAMPLESIZE,0,"n",longOptionNames.at(SAMPLESIZE).c_str(),Arg::Natural,usageMessages.at(SAMPLESIZE).c_str()},
+    {RECORDEPSILON,0,"e",longOptionNames.at(RECORDEPSILON).c_str(),Arg::NonZeroProportion,usageMessages.at(RECORDEPSILON).c_str()},
+    {SAMPLESIZE,0,"n",longOptionNames.at(SAMPLESIZE).c_str(),Arg::Whole,usageMessages.at(SAMPLESIZE).c_str()},
     {SIMSIZE,0,"s",longOptionNames.at(SIMSIZE).c_str(),Arg::Natural,usageMessages.at(SIMSIZE).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "===TUNING OPTIONS"},
     {CGDISABLE,0,"",longOptionNames.at(CGDISABLE).c_str(),option::Arg::None,usageMessages.at(CGDISABLE).c_str()},
@@ -321,6 +336,8 @@ Opts ParseOptions(int argc, char ** argv){
     double mgeProp = model::CModel::GetGEStepProp();
     double mgsMult = model::CModel::GetGSMult();
     double mgsTol = model::CModel::GetGSTolProp();
+    double recAlpha = record::CRecord::GetAlpha();
+    double recEpsilon = record::CRecord::GetEpsilon();
 
     std::string bEnableGradDescentStr = "FALSE";
 
@@ -329,9 +346,6 @@ Opts ParseOptions(int argc, char ** argv){
         size_t pos = 0;
         std::string initStr;
         switch(opt.index()){
-            case BURNIN:
-                opts.burnin = atoi(opt.arg);
-                break;
             case CGDISABLE:
                 chain::CChain::ToggleGradientDescent();
                 bEnableGradDescentStr = "TRUE";
@@ -398,11 +412,17 @@ Opts ParseOptions(int argc, char ** argv){
             case PRIORFILE:
                 opts.prior = opt.arg;
                 break;
+            case RECORDALPHA:
+                recAlpha = atof(opt.arg);
+                break;
+            case RECORDEPSILON:
+                recEpsilon = atof(opt.arg);
+                break;
             case RESUME:
                 opts.resume = opt.arg;
                 break;
             case SAMPLESIZE:
-                opts.sampleSize = atoi(opt.arg);
+                opts.maxSampleSize = atoi(opt.arg);
                 break;
             case SEED:
                 opts.seed = atoi(opt.arg);
@@ -434,14 +454,16 @@ Opts ParseOptions(int argc, char ** argv){
     model::CModel::TuneEvaluation(meErr);
     model::CModel::TuneGradientEstimation(mgeProp);
     model::CModel::TuneGoldenSearch(mgsMult,mgsTol);
+    record::CRecord::TuneThreshold(recAlpha,recEpsilon);
 
     std::stringstream message;
     message << "\t" << longOptionNames.at(OBSFILE) << ":\t" << opts.obs << "\n";
     message << "\t" << longOptionNames.at(PRIORFILE) << ":\t" << opts.prior << "\n";
     message << "\t" << longOptionNames.at(TREEFILE) << ":\t" << opts.tree << "\n";
-    message << "\t" << longOptionNames.at(BURNIN) << ":\t" << opts.burnin << "\n";
+    message << "\t" << longOptionNames.at(RECORDALPHA) << ":\t" << recAlpha << "\n";
     message << "\t" << longOptionNames.at(NCHAINS) << ":\t" << opts.nChains << "\n";
-    message << "\t" << longOptionNames.at(SAMPLESIZE) << ":\t" << opts.sampleSize << "\n";
+    message << "\t" << longOptionNames.at(RECORDEPSILON) << ":\t" << recEpsilon << "\n";
+    message << "\t" << longOptionNames.at(SAMPLESIZE) << ":\t" << opts.maxSampleSize << "\n";
     message << "\t" << longOptionNames.at(SIMSIZE) << ":\t" << opts.simSize << "\n";
     message << "\t" << longOptionNames.at(CGDISABLE) << ":\t" << bEnableGradDescentStr << "\n";
     message << "\t" << longOptionNames.at(CPSHORIZON) << ":\t" << cpsHorizon << "\n";
@@ -667,7 +689,7 @@ std::vector<std::string> ParseResultsFile(std::string path){
     return vModelStr;
 }
 
-size_t ResumeChains(std::vector<std::unique_ptr<chain::CChain>> & vChains, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nChains, size_t nThreads, size_t maxSim, ctpl::thread_pool & threadPool, std::string resume){
+void ResumeChains(std::vector<std::unique_ptr<chain::CChain>> & vChains, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nChains, size_t nThreads, size_t maxSim, ctpl::thread_pool & threadPool, std::string resume, record::CRecord & sampleRecord){
     logger::Log("Generating %ld chains(s) ...",logger::INFO,nChains);
     std::vector<std::string> vModelStr = ParseResultsFile(resume);
     std::mt19937 gen;
@@ -675,6 +697,13 @@ size_t ResumeChains(std::vector<std::unique_ptr<chain::CChain>> & vChains, const
     auto ptr = prior.GenerateModel(gen);
     size_t nBlocks = ptr->getNEvalBlocks();
     size_t nRemainThreads = nThreads;
+    //Iterate over the model strings and add them to the record
+    //  Sips the first model, as it isn't actually an accepted sample
+    for(int i = 1; i < vModelStr.size(); i++){
+        ptr->setToStr(vModelStr[i]);
+        sampleRecord.addSample(*ptr);
+    }
+    //Construct the chains from the last model
     std::vector<std::future<std::unique_ptr<chain::CChain>>> vFutures;
     for(int chain = 0; chain < nChains; chain++){
         size_t nBlockThreads = std::ceil(double(nRemainThreads)/double(nChains - chain));
@@ -693,7 +722,6 @@ size_t ResumeChains(std::vector<std::unique_ptr<chain::CChain>> & vChains, const
         auto chain = future.get();
         vChains.push_back(std::move(chain));
     }
-    return vModelStr.size(); 
 }
 
 std::string toBinary(uint64_t flag, size_t bits){
@@ -780,8 +808,12 @@ int main(int argc, char ** argv){
     size_t nChainThreads = std::min(opts.nChains,opts.nThreads);
     ctpl::thread_pool threadPool(nChainThreads);
 
+
+    //Initialize the record of accepted samples with the list of non-fixed parameters
+    record::CRecord sampleRecord(prior->getModelParameterNames(false));
+    logger::Log("Minimum sample size is %d",logger::INFO,sampleRecord.nextMilestone());
+
     //Construct The Chain Objects
-    int acceptCount = -1 * opts.burnin;
     std::vector<std::unique_ptr<chain::CChain>> vChains;
     if(opts.resume.empty()){
         GenerateChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool);
@@ -795,7 +827,7 @@ int main(int argc, char ** argv){
         }
         InitialOutput(prior->getNProt(),vChains[0]->getModel());
     } else {
-        acceptCount += ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume);
+        ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume,sampleRecord);
     }
 
     int iteration = 0;
@@ -809,9 +841,13 @@ int main(int argc, char ** argv){
     //Initialize Vector of bitVectors which specify the proposals to make
     std::vector<uint64_t> vPropFlags = initializePropFlags(vChains[0]->getModel(),gen);
 
-    while(acceptCount < opts.sampleSize){
+    while((opts.maxSampleSize == 0 || sampleRecord.size() < opts.maxSampleSize) && !sampleRecord.isComplete()){
+        int milestone = std::min(opts.maxSampleSize,int(sampleRecord.nextMilestone()));
+        if(milestone == 0){
+            milestone = int(sampleRecord.nextMilestone());
+        }
         uint64_t propFlags = vPropFlags[iteration++ % vPropFlags.size()];
-        logger::Log("===Iteration %d (%d/%d)",logger::INFO,iteration,acceptCount,opts.sampleSize);
+        logger::Log("===Iteration %d (%d/%d+)",logger::INFO,iteration,sampleRecord.size(),milestone);
         logger::Log("Proposing changes on 0b%s ...",logger::INFO,toBinary(propFlags,nParams-1).c_str());
 
         //Determine which parameters are being modified
@@ -834,7 +870,7 @@ int main(int argc, char ** argv){
         for(int chain = 0; chain < opts.nChains; chain++){
             if(vFutures[chain].get() && chain == 0){
                 std::cout << vChains[0]->getModel() << "\n";
-                acceptCount++;
+                sampleRecord.addSample(vChains[0]->getModel());
             }
         }
         

@@ -38,8 +38,6 @@ namespace chain {
         //}
     }
 
-    
-
     CChain::CChain(int id, const prior::CPrior & prior, const Tree & tree, const model::StateMap & obs, unsigned long int seed, size_t nThreads, size_t nSim, std::string modelStr):
         CChain(id, prior, tree, obs, seed,nThreads, nSim)
         //id(id), prior(std::cref(prior)), tree(std::cref(tree)),

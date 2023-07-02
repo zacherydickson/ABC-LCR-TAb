@@ -39,7 +39,6 @@ namespace stats {
             type = DiscreteTruncatedNormal;
         } else if(str == "ChiSq"){
             type = ChiSq;
-        }
         } else {
             throw std::invalid_argument("Attempt to convert unrecognized string to a DistributionType");
         }
@@ -49,12 +48,12 @@ namespace stats {
     //Chi-Squared
     double ChiSqPDF(double x, double df){
         if(df < 1){
-            throw std::invalid_argument("Attempt to get a chi-squared density with non-natural degreees of freedom")
+            throw std::invalid_argument("Attempt to get a chi-squared density with non-natural degreees of freedom");
         }
         if(x == 0 && df == 1){
             throw std::invalid_argument("Attempt to get chi-squared density at zero with one degree of freedom");
         } else if(x < 0){
-            throw std::invalid_argument("Attempt to get chi-squared density for negative value")
+            throw std::invalid_argument("Attempt to get chi-squared density for negative value");
         }
         int k = df;
         double denom = std::pow(2.0,k/2.0) * std::tgamma(k/2.0);
@@ -65,7 +64,7 @@ namespace stats {
 
     double ChiSqCDF(double x, double df){
         if(df < 1){
-            throw std::invalid_argument("Attempt to get a chi-squared cumulative probability with non-natural degreees of freedom")
+            throw std::invalid_argument("Attempt to get a chi-squared cumulative probability with non-natural degreees of freedom");
         }
         if(x <= 0){
             return 0;
@@ -74,7 +73,7 @@ namespace stats {
         int k = df;
         try {
             p = boost::math::gamma_p(k/2.0,x/2.0);
-        } catch {
+        } catch (std::exception & e) {
             throw;
         }
         return p;
@@ -82,13 +81,13 @@ namespace stats {
 
     double ChiSqQuantile(double p, double df){
         if(df < 1){
-            throw std::invalid_argument("Attempt to get a chi-squared cumulative probability with non-natural degreees of freedom")
+            throw std::invalid_argument("Attempt to get a chi-squared cumulative probability with non-natural degreees of freedom");
         }
         double q = 0;
         int k = df;
         try {
             q = boost::math::gamma_p_inv(k /2.0, p);
-        } catch {
+        } catch (std::exception & e) {
             throw;
         }
         q *= 2.0;
