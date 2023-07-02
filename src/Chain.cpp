@@ -210,7 +210,7 @@ namespace chain {
                 double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
                 for(const std::string & name : paramNameSet){
                     if(this->adaptiveScaleMap[name]->update(scaleUpdate,this->gen)){
-                        logger::Log("Chain %d) scale for %s proposals updated to %0.04f natural OoMs",logger::INFO,this->id,name.c_str(),std::log(this->adaptiveScaleMap[name]->getValue()));
+                        logger::Log("Chain %d) scale for %s proposals updated to %0.04f base 10 OoMs",logger::INFO,this->id,name.c_str(),std::log10(this->adaptiveScaleMap[name]->getValue()));
                     }
                 }
                 if(this->adaptiveSimAlpha.update(scaleUpdate,this->gen)){

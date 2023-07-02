@@ -6,11 +6,14 @@
 #include <string>
 #include <set>
 
+
+//This implementation of a multivariate Effective Sample Size stopping rule is adapted from
+//Vats Flegal and Jones 2017 (doi: 10.48550/arXiv.1512.07713)
+
 namespace record {
 
     typedef std::set<std::string> StringSet;
 
-    //TODO: Change implementation to judge burnin just off of the nlogP
     class CRecord{
         //Cons/Destruction
         public:

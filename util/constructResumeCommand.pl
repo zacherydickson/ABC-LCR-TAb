@@ -81,14 +81,14 @@ sub ParseLogFile($){
     while(my $line = <$fh>){
         chomp($line);
         if($line =~ m/updated/){ #Proposal 
-            #Only care a bout values on the first chain
+            #Only care about values on the first chain
             next unless($line =~ m/Chain 0\)/);
             if($line =~ m/scale for ([a-zA-z_\-0-9]+) proposals updated to (-?[0-9.]+)/){
                 my $param = $1;
                 my $value = $2;
                 #Only want to lates update
                 next if(exists $commandArgs{'updated-proposal-scale'}->{$param});
-                $commandArgs{'updated-proposal-scale'}->{$param} = exp($value);
+                $commandArgs{'updated-proposal-scale'}->{$param} = 10**$value;
             } elsif($line =~ m/variance handling updated to (-?[0-9.]+)/){
                 my $value = $1;
                 #Only want to lates update
