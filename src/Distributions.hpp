@@ -12,7 +12,7 @@ namespace stats {
     const long double pi = std::atan(1)*4;
     const long double root2 = std::sqrt((long double)2.0);
 
-    enum DistributionType {Beta, Exponential,DiscreteTruncatedNormal, Fixed, HalfNormal, Normal, LogNormal, Laplace, Poisson, Skellam, T, TruncatedNormal, Uniform };
+    enum DistributionType {Beta, ChiSq, Exponential,DiscreteTruncatedNormal, Fixed, HalfNormal, Normal, LogNormal, Laplace, Poisson, Skellam, T, TruncatedNormal, Uniform };
 
     struct SDomain{
         double min;
@@ -26,6 +26,10 @@ namespace stats {
     double FixedPMF(double x, double mu);
     double FixedCDF(double x, double mu);
     double FixedQuantile(double p, double mu);
+
+    double ChiSqPDF(double x, double df);
+    double ChiSqCDF(double x, double df);
+    double ChiSqQuantile(double p, double df);
 
     double NormalPDF(double x, double mu = 0.0, double sigma = 1.0);
     long double NormalCDF(double x, double mu = 0.0, double sigma = 1.0, bool bLogP = false); 

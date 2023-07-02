@@ -37,10 +37,61 @@ namespace stats {
             type = TruncatedNormal;
         } else if(str == "DiscreteTruncatedNormal"){
             type = DiscreteTruncatedNormal;
+        } else if(str == "ChiSq"){
+            type = ChiSq;
         } else {
             throw std::invalid_argument("Attempt to convert unrecognized string to a DistributionType");
         }
         return type;
+    }
+
+    //Chi-Squared
+    double ChiSqPDF(double x, double df){
+        if(df < 1){
+            throw std::invalid_argument("Attempt to get a chi-squared density with non-natural degreees of freedom");
+        }
+        if(x == 0 && df == 1){
+            throw std::invalid_argument("Attempt to get chi-squared density at zero with one degree of freedom");
+        } else if(x < 0){
+            throw std::invalid_argument("Attempt to get chi-squared density for negative value");
+        }
+        int k = df;
+        double denom = std::pow(2.0,k/2.0) * std::tgamma(k/2.0);
+        double d = std::pow(x,k/2.0-1.0) * exp(-x / 2.0);
+        d /= denom;
+        return d;
+    }
+
+    double ChiSqCDF(double x, double df){
+        if(df < 1){
+            throw std::invalid_argument("Attempt to get a chi-squared cumulative probability with non-natural degreees of freedom");
+        }
+        if(x <= 0){
+            return 0;
+        }
+        double p = 0;
+        int k = df;
+        try {
+            p = boost::math::gamma_p(k/2.0,x/2.0);
+        } catch (std::exception & e) {
+            throw;
+        }
+        return p;
+    }
+
+    double ChiSqQuantile(double p, double df){
+        if(df < 1){
+            throw std::invalid_argument("Attempt to get a chi-squared cumulative probability with non-natural degreees of freedom");
+        }
+        double q = 0;
+        int k = df;
+        try {
+            q = boost::math::gamma_p_inv(k /2.0, p);
+        } catch (std::exception & e) {
+            throw;
+        }
+        q *= 2.0;
+        return q;
     }
 
     //Normal

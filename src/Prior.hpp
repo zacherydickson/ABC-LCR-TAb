@@ -37,6 +37,7 @@ namespace prior {
         public:
             double calculateJointPriorDensity(const model::ParamMap & parameters) const;
             model::ModelType getModelType() {return this->modelType;}
+            std::vector<std::string> getModelParameterNames(bool bIncludeFixed = true) const;
             size_t getNProt() const {return vInitStates.size();}
             size_t getNParamPriors() const {return mParamPriors.size();}
             std::unique_ptr<model::CModel> GenerateModel(std::mt19937 & gen) const;
