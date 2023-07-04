@@ -28,8 +28,8 @@ namespace record {
 
     // Static Members, CRecord, protected
 
-    double CRecord::alpha = 0.05;
-    double CRecord::epsilon = 0.05;
+    double CRecord::Alpha = 0.05;
+    double CRecord::Epsilon = 0.05;
 
     // Static Methods, CRecord, protected
 
@@ -37,9 +37,10 @@ namespace record {
         double exponent = 2.0 / double(nParam);
         double num1 = std::pow(2.0,exponent) * stats::pi;
         double denom1 = std::pow(nParam * std::tgamma(nParam / 2.0),exponent);
-        double num2 = stats::ChiSqQuantile(1-CRecord::alpha,nParam);
-        double denom2 = std::pow(CRecord::epsilon,2.0);
-        return num1 /denom1 * num2 / denom2;
+        double q = stats::ChiSqQuantile(1-CRecord::Alpha,nParam);
+        double denom2 = std::pow(CRecord::Epsilon,2.0);
+        double W = num1 /denom1 * q / denom2;
+        return W;
     }
 
     void CRecord::TuneThreshold(double alpha, double epsilon){
@@ -49,8 +50,8 @@ namespace record {
         if(epsilon <= 0 || epsilon > 1){
             throw std::invalid_argument("Attempt to tune CRecord threshold with an epsilon outside (0,1]");
         }
-        CRecord::alpha = alpha;
-        CRecord::epsilon = epsilon;
+        CRecord::Alpha = alpha;
+        CRecord::Epsilon = epsilon;
         //fprintf(stderr,"alpha: %0.04f\tepsilon: %0.04f\n",CRecord::alpha, CRecord::epsilon);
     }
     
@@ -79,9 +80,16 @@ namespace record {
             return false;
         }
         double ess = this->estimateEffectiveSampleSize();
+        double factor = this->W / ess;
+        double mcError = CRecord::Epsilon / std::sqrt(1/factor);
+        logger::Log("The current Monte Carlo Error is %0.2f%%",logger::INFO,mcError*100);
         if(ess < this->W){
             if(ess > 0){
-                this->nStar *= this->W / ess;
+                //Make sure we don't have milestones more than the Threshold away
+                if((factor-1) * nStar > this->W){
+                    factor = this->W / nStar + 1;
+                } 
+                this->nStar *= factor;
             } else {
                 this->nStar += this->W;
             }

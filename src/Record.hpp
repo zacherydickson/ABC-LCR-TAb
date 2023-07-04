@@ -22,8 +22,8 @@ namespace record {
             CRecord(const model::CModel & model);
         //Static Members
         protected:
-            static double alpha;
-            static double epsilon;
+            static double Alpha;
+            static double Epsilon;
         //Members
         protected:
             size_t nSamples;
@@ -37,8 +37,8 @@ namespace record {
             const double W;
         //Static Methods
         public:
-            static double GetAlpha(){return CRecord::alpha;}
-            static double GetEpsilon(){return CRecord::epsilon;}
+            static double GetAlpha(){return CRecord::Alpha;}
+            static double GetEpsilon(){return CRecord::Epsilon;}
             static void TuneThreshold(double alpha, double epsilon);
         protected:
             static int CalculateThreshold(size_t nParam);
