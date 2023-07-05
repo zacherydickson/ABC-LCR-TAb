@@ -1,14 +1,14 @@
 args <- commandArgs(trailingOnly = T)
 
 if(length(args) < 1){
-    stop("Usage: Vis....R inFile.res [burnin] (parses inFile.log also creates inFile.pdf and inFile.eval")
+    stop("Usage: Vis....R inFile.res (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
 logFile <- sub("res$","log",resFile)
 pdfFile <- sub("res$","pdf",resFile)
 evalFile <- sub("res$","eval",resFile)
-burnin <- as.numeric(args[2])
+#burnin <- as.numeric(args[2])
 
 if(any(resFile == c(logFile,pdfFile,evalFile))){
     stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
@@ -106,6 +106,10 @@ vioplotWPoints <- function(data,...){
     return(NULL)
 }
 
+mESSBurninEst <- function(p,a=0.05,e=0.05){
+    2^(2/p) * pi / (p*gamma(p/2))^(2/p) * qchisq(1-a,p) / e^2
+}
+
 ######## MAIN ##############
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
@@ -137,11 +141,13 @@ ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)
 #message(paste0(ymin,collapse=" "))
 
 SwapIdx <- parseLog(logFile)
-lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
+#lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
+
 
 pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 
-burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
+#burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
+burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 SwapIdx = SwapIdx - burnin
 SwapIdx = SwapIdx[SwapIdx > 0]
