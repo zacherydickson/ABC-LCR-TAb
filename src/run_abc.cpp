@@ -603,7 +603,7 @@ void InitialOutput(size_t nProt,const model::CModel & model){
             std::cout << "Prot" << i << "\t";
     }
     std::cout << model.getName() << "\t\tnLogP\t";
-    std::cout << join(model.getParamNames(),"\t") << "\n" << model << "\n";
+    std::cout << join(model.getParamNames(),"\t") << "\n" << model << std::endl;
 }
 
 
@@ -686,6 +686,7 @@ std::vector<std::string> ParseResultsFile(std::string path){
         std::cout << cur << "\n";
         vModelStr.push_back(cur);
     }
+    std::cout << std::flush;
     return vModelStr;
 }
 
@@ -822,7 +823,7 @@ int main(int argc, char ** argv){
         logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
         if(vChains[0]->getModel().isFixed()){
             logger::Log("The Prior is Fixed for all parameters, assuming the desired behaviour is evaluation of the logLikelihood of the model defined by the prior\n",logger::WARNING);
-            std::cout << vChains[0]->getLastEval() << "±" << vChains[0]->getEvaluationSD() << "\n";
+            std::cout << vChains[0]->getLastEval() << "±" << vChains[0]->getEvaluationSD() << std::endl;
             return 0;
         }
         InitialOutput(prior->getNProt(),vChains[0]->getModel());
@@ -869,7 +870,7 @@ int main(int argc, char ** argv){
         //Synchronize the chains
         for(int chain = 0; chain < opts.nChains; chain++){
             if(vFutures[chain].get() && chain == 0){
-                std::cout << vChains[0]->getModel() << "\n";
+                std::cout << vChains[0]->getModel() << std::endl;
                 sampleRecord.addSample(vChains[0]->getModel());
             }
         }
