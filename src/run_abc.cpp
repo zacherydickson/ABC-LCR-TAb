@@ -905,6 +905,11 @@ int main(int argc, char ** argv){
             logger::Log("%s with p=%0.1f%%",logger::INFO,result.c_str(),accept*100);
         }
     }
-    logger::Log("Done",logger::INFO);
+    if(opts.maxSampleSize != 0 && sampleRecord.size() >= opts.maxSampleSize){
+        sampleRecord.isComplete();
+        logger::Log("Reached User Specified Maximum Samples",logger::WARNING);
+    } else {
+        logger::Log("Done",logger::INFO);
+    }
     return 0;
 }

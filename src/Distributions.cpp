@@ -3,7 +3,9 @@
 #include <boost/math/special_functions/bessel.hpp>
 #include <boost/math/special_functions/gamma.hpp>
 #include <boost/math/special_functions/hypergeometric_pFq.hpp>
+#include <cerrno>
 #include "Distributions.hpp"
+#include "qpois.h"
 #include <limits>
 #include <stdexcept>
 
@@ -469,11 +471,27 @@ namespace stats {
 
     double PoissonQuantile(double p, double lambda){
         if(p < 0 || p > 1){
-            throw std::domain_error("Attempt to get poisson quantile of non proprotion");
+            throw std::domain_error("Attempt to get poisson quantile of non proportion");
         }
         if(lambda == 0){
             return 0;
         }
+        if(lambda < QPois_PreCalc_MaxLambda && p < QPois_PreCalc_MaxP){
+            double L = lambda / double(QPois_PreCalc_LambdaIncrement);
+            double P = p / double(QPois_PreCalc_PIncrement);
+            int L1 = std::floor(L);
+            int L2 = std::ceil(L);
+            int P1 = std::floor(P);
+            int P2 = std::ceil(P);
+            double q = 0;
+            q += (L2 - L) * (P2 - P) * QPoisson[L1][P1];
+            q += (L2 - L) * (P - P1) * QPoisson[L1][P2];
+            q += (L - L1) * (P2 - P) * QPoisson[L2][P1];
+            q += (L - L1) * (P - P1) * QPoisson[L2][P2];
+            q = (q <= lambda) ? std::floor(q) : std::ceil(q);
+            return q;
+        }
+        errno = 0;
         double invQresult = boost::math::gamma_q_inva(lambda,p);
         return std::ceil(invQresult) - 1;
     }
