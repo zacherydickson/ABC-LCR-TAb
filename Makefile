@@ -21,8 +21,7 @@ $(HBDIR)/$(PROG): $(SDIR)/$(PROG).cpp $(STANDALONES) $(OBJECTS)
 
 $(HODIR)/Distributions.o : $(SDIR)/Distributions.cpp $(SDIR)/Distributions.hpp
 	@mkdir -p $(HODIR)
-	$(CC) -c $(SDIR)/Distributions.cpp -o $(HODIR)/Distributions.o -I$(BOOSTLIB)
-
+	$(CC) -c $(SDIR)/Distributions.cpp -o $(HODIR)/Distributions.o -I$(BOOSTLIB) 
 
 $(HODIR)/Record.o : $(SDIR)/Record.cpp $(SDIR)/Record.hpp
 	@mkdir -p $(HODIR)

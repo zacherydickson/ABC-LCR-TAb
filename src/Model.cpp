@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cmath>
 #include "Distributions.hpp"
 #include <future>
@@ -590,8 +591,18 @@ namespace model{
         lambdaTerm *= upsilonTerm;
         double kappaTerm = (parent.value.vLength[protIdx])*this->parameters.at("kappa").value*time;
         kappaTerm *= upsilonTerm;
-        int nIns = stats::PoissonQuantile(stats::generate_open_canonical(gen),lambdaTerm);
-        int nDel = stats::PoissonQuantile(stats::generate_open_canonical(gen),kappaTerm);
+        double p = stats::generate_open_canonical(gen);
+        int nIns = stats::PoissonQuantile(p,lambdaTerm);
+        if(errno == EDOM){
+            logger::Log("Boost couldn't properly evaluate qPois(p=%0.04f,λ=%0.04f), continuing with %0.04f",logger::WARNING,p,lambdaTerm,nIns);
+            errno = 0;
+        }
+        p = stats::generate_open_canonical(gen);
+        int nDel = stats::PoissonQuantile(p,kappaTerm);
+        if(errno == EDOM){
+            logger::Log("Boost couldn't properly evaluate qPois(p=%0.04f,λ=%0.04f), continuing with %0.04f",logger::WARNING,p,kappaTerm,nDel);
+            errno = 0;
+        }
         int length = parent.value.vLength[protIdx] + nIns - nDel;
         length = (length > 0) ? length : 0;
         double mutRate = std::exp(this->parameters.at("muOoM").value) * time * length;
