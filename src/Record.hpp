@@ -24,6 +24,7 @@ namespace record {
         protected:
             static double Alpha;
             static double Epsilon;
+            static size_t MaximumESS;
         //Members
         protected:
             size_t nSamples;
@@ -39,9 +40,10 @@ namespace record {
         public:
             static double GetAlpha(){return CRecord::Alpha;}
             static double GetEpsilon(){return CRecord::Epsilon;}
-            static void TuneThreshold(double alpha, double epsilon);
+            static size_t GetMaxESS(){return CRecord::MaximumESS;}
+            static void TuneThreshold(double alpha, double epsilon, size_t MaximumESS);
         protected:
-            static int CalculateThreshold(size_t nParam);
+            static int CalculateThreshold(size_t nParam, bool bMax = false);
         //Methods
         public:
             void addSample(const model::CModel & model);
