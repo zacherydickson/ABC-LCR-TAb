@@ -31,20 +31,21 @@
 
 std::string Version = "V0.0.0";
 
-int logger::Verbosity = 2;
+int logger::Verbosity = 3;
 
 //Threading
 const int MaxThreads = (std::thread::hardware_concurrency()) ? std::thread::hardware_concurrency() : 1;
 
 struct Opts {
-    Opts() : maxSampleSize(0), simSize(200), nChains(1), nThreads(1), seed((long unsigned int)std::time(0)), tgtSwpRate(0.5), tempHorizon(50), initTempInc(0.1) {}
-    int simSize, maxSampleSize, nChains, nThreads, tempHorizon;
+    Opts() : maxIter(0), maxSampleSize(0), simSize(400), nChains(1), nThreads(1), seed((long unsigned int)std::time(0)), tgtSwpRate(0.5), tempHorizon(50), initTempInc(0.1) {}
+    int simSize, maxIter, maxSampleSize, nChains, nThreads, tempHorizon;
     long unsigned int seed;
     double tgtSwpRate,initTempInc;
     std::string obs, prior, resume, tree;
 } defaultOpts;
 
 enum InputMisMatchCase {VALID, VAR_OBS, PRIOR_OBS, TREE_OBS, MISSING_TIP, NO_OBS};
+enum TerminationStatus {NOTERM, TERMITER, TERMSAMPLE, TERMESS};
 
 /*### STRING HANDLING FUNCTIONS #############################################*/
 
@@ -87,7 +88,7 @@ std::string join(const std::vector<std::string> & v, std::string delim = ","/*, 
 
 /*### HELP AND USAGE #########################################################*/
 
-enum optionIndex{UNKNOWN,HELP,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RECORDALPHA,RECORDEPSILON,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
+enum optionIndex{UNKNOWN,HELP,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MAXESS,MAXITER,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RECORDALPHA,RECORDEPSILON,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
 
 struct Arg: public option::Arg{
     static void printError(const char* msg1, const option::Option& opt, const char* msg2){
@@ -197,6 +198,8 @@ const std::map<optionIndex,std::string> longOptionNames = {
     {CSVAHORIZ,"sim-variance-alpha-horizon"},
     {CSVREHORIZ,"sim-variance-evaluation-horizon"},
     {CSVN,"sim-variance-n"},
+    {MAXESS,"max-effective-sample-size"},
+    {MAXITER,"max-iterations"},
     {MEERROR,"eval-rel-error"},
     {MGEPROP,"gradient-step-proportion"},
     {MGSMULT,"golden-search-boundary-mult"},
@@ -230,6 +233,8 @@ const std::map<optionIndex,std::string> usageMessages = {
     {CSVREHORIZ,"[" + std::to_string(chain::CChain::GetSimVarReEvalHorizon()) + "] --" + longOptionNames.at(CSVREHORIZ) + " (0,∞)εZ \t The number of iterations between estimates of the current simulation variability. More frequent updates are more accurate, but will significant slow the program."},
     {CSVN,"[" + std::to_string(chain::CChain::GetSimVarN()) + "] --" + longOptionNames.at(CSVN) + " [2,∞)εZ \tThe number of full evaluations to perform to estimate the variability between simulations with the same parameter values."},
     {HELP, " --" + longOptionNames.at(HELP) + ", -h \tPrint usage and exit"},
+    {MAXESS ,"[" + std::to_string(record::CRecord::GetMaxESS()) + "] --" + longOptionNames.at(MAXESS) + ", -n [0,∞)εZ \tThe effective sample size at which to stop iterating, 0 indicates no maximum."},  
+    {MAXITER,"[" + std::to_string(defaultOpts.maxIter) + "] --" + longOptionNames.at(MAXITER) + " [0,∞)εZ \tThe maximum number of iterations, 0 indicates no maximum."}, 
     {MEERROR,"[" + std::to_string(model::CModel::GetEvalRelError()) +"] --" + longOptionNames.at(MEERROR) + " [0,∞)εR \tThe maximum relative error between observed and simulated data to be considered a match during evaluation."},
     {MGEPROP,"[" + std::to_string(model::CModel::GetGEStepProp()) +"] --" + longOptionNames.at(MGEPROP) + " (0,∞)εR \tThe size of a step to take when estimating the gradient relative to the current parameter value."},
     {MGSMULT,"[" + std::to_string(model::CModel::GetGSMult()) +"] --" + longOptionNames.at(MGSMULT) + " (0,∞)εR \tWhen minimizing in the gradient direction, the maximum distance to search relative to parameter value."},
@@ -244,7 +249,7 @@ const std::map<optionIndex,std::string> usageMessages = {
     {RESUME,"--" + longOptionNames.at(RESUME) + ", -r path \tA results file from a previous run, will resume with the number of accepted samples from the file; All chains will start from the same point. Adaptive scaling parameters will be reset."},
     {SEED, "--" + longOptionNames.at(SEED) + " [1,∞)εZ \tA seed for the random number generator"},
     {SIMSIZE, "[" + std::to_string(defaultOpts.simSize) + "] --" + longOptionNames.at(SIMSIZE) + ", -s [1,∞)εZ \tThe number of simulations to run for a generated set of model parameters. Each additional simulation improves the estimation of the distribution of values at tree nodes at the cost of run time."},
-    {SAMPLESIZE, "[" + std::to_string(defaultOpts.maxSampleSize) + "] --" + longOptionNames.at(SAMPLESIZE) + ", -n [0,∞)εZ \tThe maximum number of accepted paramter sets (0 indicates no maximum)."},
+    {SAMPLESIZE, "[" + std::to_string(defaultOpts.maxSampleSize) + "] --" + longOptionNames.at(SAMPLESIZE) + ", -N [0,∞)εZ \tThe maximum number of accepted paramter sets (0 indicates no maximum)."},
     {TRATE,"[" + std::to_string(defaultOpts.tgtSwpRate) + "] --" + longOptionNames.at(TRATE) + " (0,1]εR \tThe target proportion of proposed swaps which are accepted."},
     {TINIT,"[" + std::to_string(defaultOpts.initTempInc) + "] --" + longOptionNames.at(TINIT) + " (0,∞)εR \tThe initial increment in chain temperature between subsequent chains."},
     {THORIZON,"[" + std::to_string(defaultOpts.tempHorizon) + "] --" + longOptionNames.at(THORIZON) + " [1,∞)εZ \tThe number of iterations between attempts to make swaps between chains; also the number of attempted swaps between updates to the temperature increment."},
@@ -264,7 +269,9 @@ const option::Descriptor usage [] = {
     {RECORDALPHA,0,"a",longOptionNames.at(RECORDALPHA).c_str(),Arg::NonZeroProportion,usageMessages.at(RECORDALPHA).c_str()},
     {NCHAINS,0,"c",longOptionNames.at(NCHAINS).c_str(),Arg::Natural,usageMessages.at(NCHAINS).c_str()},
     {RECORDEPSILON,0,"e",longOptionNames.at(RECORDEPSILON).c_str(),Arg::NonZeroProportion,usageMessages.at(RECORDEPSILON).c_str()},
-    {SAMPLESIZE,0,"n",longOptionNames.at(SAMPLESIZE).c_str(),Arg::Whole,usageMessages.at(SAMPLESIZE).c_str()},
+    {MAXESS,0,"n",longOptionNames.at(MAXESS).c_str(),Arg::Whole,usageMessages.at(MAXESS).c_str()},
+    {SAMPLESIZE,0,"N",longOptionNames.at(SAMPLESIZE).c_str(),Arg::Whole,usageMessages.at(SAMPLESIZE).c_str()},
+    {MAXITER,0,"",longOptionNames.at(MAXITER).c_str(),Arg::Whole,usageMessages.at(MAXITER).c_str()},
     {SIMSIZE,0,"s",longOptionNames.at(SIMSIZE).c_str(),Arg::Natural,usageMessages.at(SIMSIZE).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "===TUNING OPTIONS"},
     {CGDISABLE,0,"",longOptionNames.at(CGDISABLE).c_str(),option::Arg::None,usageMessages.at(CGDISABLE).c_str()},
@@ -291,7 +298,7 @@ const option::Descriptor usage [] = {
     {HELP, 0, "h",longOptionNames.at(HELP).c_str(), option::Arg::None,usageMessages.at(HELP).c_str()},
     {QUIET, 0, "q",longOptionNames.at(QUIET).c_str(), option::Arg::None,usageMessages.at(QUIET).c_str()},
     {VERBOSITY, 0, "v",longOptionNames.at(VERBOSITY).c_str(), option::Arg::None,usageMessages.at(VERBOSITY).c_str()},
-    {UNKNOWN,0, "","",option::Arg::None, "\tNote: Default level 2: errors and warnings"},
+    {UNKNOWN,0, "","",option::Arg::None, "\tNote: Default level 3: errors, warnings, and info"},
     {0,0,0,0,0,0}
 };
 
@@ -338,6 +345,7 @@ Opts ParseOptions(int argc, char ** argv){
     double mgsTol = model::CModel::GetGSTolProp();
     double recAlpha = record::CRecord::GetAlpha();
     double recEpsilon = record::CRecord::GetEpsilon();
+    double recMaxESS = record::CRecord::GetMaxESS();
 
     std::string bEnableGradDescentStr = "FALSE";
 
@@ -383,6 +391,12 @@ Opts ParseOptions(int argc, char ** argv){
                break;
             case CSVREHORIZ:
                csvReEvalHorizon = atoi(opt.arg);
+               break;
+            case MAXESS:
+               recMaxESS = atoi(opt.arg);
+               break;
+            case MAXITER:
+               opts.maxIter = atoi(opt.arg);
                break;
             case MEERROR:
                meErr = atof(opt.arg);
@@ -454,7 +468,7 @@ Opts ParseOptions(int argc, char ** argv){
     model::CModel::TuneEvaluation(meErr);
     model::CModel::TuneGradientEstimation(mgeProp);
     model::CModel::TuneGoldenSearch(mgsMult,mgsTol);
-    record::CRecord::TuneThreshold(recAlpha,recEpsilon);
+    record::CRecord::TuneThreshold(recAlpha,recEpsilon,recMaxESS);
 
     std::stringstream message;
     message << "\t" << longOptionNames.at(OBSFILE) << ":\t" << opts.obs << "\n";
@@ -463,7 +477,9 @@ Opts ParseOptions(int argc, char ** argv){
     message << "\t" << longOptionNames.at(RECORDALPHA) << ":\t" << recAlpha << "\n";
     message << "\t" << longOptionNames.at(NCHAINS) << ":\t" << opts.nChains << "\n";
     message << "\t" << longOptionNames.at(RECORDEPSILON) << ":\t" << recEpsilon << "\n";
+    message << "\t" << longOptionNames.at(MAXESS) << ":\t" << recMaxESS << "\n";
     message << "\t" << longOptionNames.at(SAMPLESIZE) << ":\t" << opts.maxSampleSize << "\n";
+    message << "\t" << longOptionNames.at(MAXITER) << ":\t" << opts.maxIter << "\n";
     message << "\t" << longOptionNames.at(SIMSIZE) << ":\t" << opts.simSize << "\n";
     message << "\t" << longOptionNames.at(CGDISABLE) << ":\t" << bEnableGradDescentStr << "\n";
     message << "\t" << longOptionNames.at(CPSHORIZON) << ":\t" << cpsHorizon << "\n";
@@ -773,6 +789,21 @@ std::vector<uint64_t> initializePropFlags(const model::CModel & model, std::mt19
     return vPropFlags;
 }
 
+TerminationStatus getTerminationStatus(size_t iteration, const Opts & opts, record::CRecord & sampleRecord){
+    //Check max iterations
+    if(opts.maxIter > 0 && iteration >= opts.maxIter){
+        return TERMITER;
+    }
+    //Check max sample size
+    if(opts.maxSampleSize > 0 && sampleRecord.size() >= opts.maxSampleSize){
+        return TERMSAMPLE;
+    }
+    if(sampleRecord.isComplete()){
+        return TERMESS;
+    }
+    return NOTERM;
+}
+
 /*### MAIN ###################################################################*/
 
 
@@ -842,7 +873,8 @@ int main(int argc, char ** argv){
     //Initialize Vector of bitVectors which specify the proposals to make
     std::vector<uint64_t> vPropFlags = initializePropFlags(vChains[0]->getModel(),gen);
 
-    while((opts.maxSampleSize == 0 || sampleRecord.size() < opts.maxSampleSize) && !sampleRecord.isComplete()){
+    TerminationStatus termStatus = NOTERM;
+    while((termStatus = getTerminationStatus(iteration,opts,sampleRecord)) == NOTERM){
         int milestone = std::min(opts.maxSampleSize,int(sampleRecord.nextMilestone()));
         if(milestone == 0){
             milestone = int(sampleRecord.nextMilestone());
@@ -906,11 +938,18 @@ int main(int argc, char ** argv){
             logger::Log("%s with p=%0.1f%%",logger::INFO,result.c_str(),accept*100);
         }
     }
-    if(opts.maxSampleSize != 0 && sampleRecord.size() >= opts.maxSampleSize){
-        sampleRecord.isComplete();
-        logger::Log("Reached User Specified Maximum Samples",logger::WARNING);
-    } else {
-        logger::Log("Done",logger::INFO);
+    std::string exitMessage = "Done";
+    logger::LogLevel exitLogLevel = logger::INFO;
+    switch(termStatus){
+        case TERMITER:
+            exitMessage = "Reached User Specified Maximum Iterations";
+            exitLogLevel = logger::WARNING;
+            break;
+        case TERMSAMPLE:
+            exitMessage = "Reached User Specified Maximum Samples";
+            exitLogLevel = logger::WARNING;
+            break;
     }
+    logger::Log("%s",exitLogLevel,exitMessage.c_str());
     return 0;
 }

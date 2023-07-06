@@ -14,7 +14,7 @@ namespace record {
     CRecord::CRecord(const std::vector<std::string> & vParamNames) : 
         nSamples(0), nParams(vParamNames.size()),
         sParamNames(vParamNames.begin(),vParamNames.end()),
-        W(CRecord::CalculateThreshold(vParamNames.size())) 
+        W(CRecord::CalculateThreshold(vParamNames.size(),true)) 
     {
         this->nStar = std::max(std::pow(this->nParams,2.0),this->W);
         sampleMat.conservativeResize(this->nParams,0);
@@ -29,29 +29,37 @@ namespace record {
     // Static Members, CRecord, protected
 
     double CRecord::Alpha = 0.05;
-    double CRecord::Epsilon = 0.05;
+    double CRecord::Epsilon = 0.15;
+    size_t CRecord::MaximumESS = 0;
 
     // Static Methods, CRecord, protected
 
-    int CRecord::CalculateThreshold(size_t nParam){
+    int CRecord::CalculateThreshold(size_t nParam, bool bMax){
         double exponent = 2.0 / double(nParam);
         double num1 = std::pow(2.0,exponent) * stats::pi;
         double denom1 = std::pow(nParam * std::tgamma(nParam / 2.0),exponent);
         double q = stats::ChiSqQuantile(1-CRecord::Alpha,nParam);
         double denom2 = std::pow(CRecord::Epsilon,2.0);
         double W = num1 /denom1 * q / denom2;
+        if(bMax && CRecord::MaximumESS > 0 && W > CRecord::MaximumESS){
+            W = CRecord::MaximumESS;
+        }
         return W;
     }
 
-    void CRecord::TuneThreshold(double alpha, double epsilon){
+    void CRecord::TuneThreshold(double alpha, double epsilon, size_t maxESS){
         if(alpha <= 0 || alpha > 1){
             throw std::invalid_argument("Attempt to tune CRecord threshold with an alpha outside (0,1]");
         }
         if(epsilon <= 0 || epsilon > 1){
             throw std::invalid_argument("Attempt to tune CRecord threshold with an epsilon outside (0,1]");
         }
+        if(maxESS < 0){
+            throw std::invalid_argument("Attempt to tune CRecord threshold with a negative maximum ESS");
+        }
         CRecord::Alpha = alpha;
         CRecord::Epsilon = epsilon;
+        CRecord::MaximumESS = maxESS;
         //fprintf(stderr,"alpha: %0.04f\tepsilon: %0.04f\n",CRecord::alpha, CRecord::epsilon);
     }
     
@@ -80,7 +88,7 @@ namespace record {
             return false;
         }
         double ess = this->estimateEffectiveSampleSize();
-        double factor = this->W / ess;
+        double factor = CRecord::CalculateThreshold(this->nParams) / ess;
         double mcError = CRecord::Epsilon / std::sqrt(1/factor);
         logger::Log("The current Monte Carlo Error is %0.2f%%",logger::INFO,mcError*100);
         if(ess < this->W){
