@@ -110,6 +110,21 @@ mESSBurninEst <- function(p,a=0.05,e=0.05){
     2^(2/p) * pi / (p*gamma(p/2))^(2/p) * qchisq(1-a,p) / e^2
 }
 
+mBM <- function(df){
+    n <- nrow(df)
+    a_n <- floor(sqrt(n));
+    b_n <- n / a_n
+    batchFactor <- cut(1:n,breaks=a_n)
+    batches <- split(df,batchFactor)
+    M = apply(df,2,mean)
+    BatchMeanDeviates <- function(x){
+        mat <- apply(x,2,mean) - M;
+        mat %*% t(mat)
+    }
+    result = Reduce("+",lapply(batches,BatchMeanDeviates))
+    result * b_n / (a_n - 1)
+}
+
 ######## MAIN ##############
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
@@ -125,15 +140,16 @@ for (cn in col.names) {
 RowstoKeep = seq(1,nrow(df));
 isFixed = setNames(rep(FALSE,length(col.names[-1])),col.names[-1])
 
-for(cn in col.names[-1]){
-    tmp <- rle(df[,cn])
-    if(length(tmp$values) == 1){
-        isFixed[cn]=TRUE
-    }
-    tmp <- lapply(1:length(tmp$values),function(i){c(tmp$values[i],rep(NA,tmp$lengths[i]-1))})
-    df[,cn] = unlist(tmp)
-}
+#for(cn in col.names[-1]){
+#    tmp <- rle(df[,cn])
+#    if(length(tmp$values) == 1){
+#        isFixed[cn]=TRUE
+#    }
+#    tmp <- lapply(1:length(tmp$values),function(i){c(tmp$values[i],rep(NA,tmp$lengths[i]-1))})
+#    df[,cn] = unlist(tmp)
+#}
 
+isFixed = sapply(names(isFixed),function(cn){length(unique(df[,cn])) == 1})
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
 ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
