@@ -842,8 +842,8 @@ int main(int argc, char ** argv){
 
 
     //Initialize the record of accepted samples with the list of non-fixed parameters
-    record::CRecord sampleRecord(prior->getModelParameterNames(false));
-    logger::Log("Minimum sample size is %d",logger::INFO,sampleRecord.nextMilestone());
+    record::CRecord *sampleRecord;
+    logger::Log("Minimum sample size is %d",logger::INFO,sampleRecord->nextMilestone());
 
     //Construct The Chain Objects
     std::vector<std::unique_ptr<chain::CChain>> vChains;
@@ -857,9 +857,11 @@ int main(int argc, char ** argv){
             std::cout << vChains[0]->getLastEval() << "±" << vChains[0]->getEvaluationSD() << std::endl;
             return 0;
         }
+        sampleRecord = new record::CRecord(prior->getModelParameterNames(false));
         InitialOutput(prior->getNProt(),vChains[0]->getModel());
     } else {
-        ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume,sampleRecord);
+        sampleRecord = new record::CRecord(prior->getModelParameterNames(false));
+        ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume,*sampleRecord);
     }
 
     int iteration = 0;
@@ -874,13 +876,13 @@ int main(int argc, char ** argv){
     std::vector<uint64_t> vPropFlags = initializePropFlags(vChains[0]->getModel(),gen);
 
     TerminationStatus termStatus = NOTERM;
-    while((termStatus = getTerminationStatus(iteration,opts,sampleRecord)) == NOTERM){
-        int milestone = std::min(opts.maxSampleSize,int(sampleRecord.nextMilestone()));
+    while((termStatus = getTerminationStatus(iteration,opts,*sampleRecord)) == NOTERM){
+        int milestone = std::min(opts.maxSampleSize,int(sampleRecord->nextMilestone()));
         if(milestone == 0){
-            milestone = int(sampleRecord.nextMilestone());
+            milestone = int(sampleRecord->nextMilestone());
         }
         uint64_t propFlags = vPropFlags[iteration++ % vPropFlags.size()];
-        logger::Log("===Iteration %d (%d/%d+)",logger::INFO,iteration,sampleRecord.size(),milestone);
+        logger::Log("===Iteration %d (%d/%d+)",logger::INFO,iteration,sampleRecord->size(),milestone);
         logger::Log("Proposing changes on 0b%s ...",logger::INFO,toBinary(propFlags,nParams-1).c_str());
 
         //Determine which parameters are being modified
@@ -903,7 +905,7 @@ int main(int argc, char ** argv){
         for(int chain = 0; chain < opts.nChains; chain++){
             if(vFutures[chain].get() && chain == 0){
                 std::cout << vChains[0]->getModel() << std::endl;
-                sampleRecord.addSample(vChains[0]->getModel());
+                sampleRecord->addSample(vChains[0]->getModel());
             }
         }
         
@@ -951,5 +953,6 @@ int main(int argc, char ** argv){
             break;
     }
     logger::Log("%s",exitLogLevel,exitMessage.c_str());
+    delete sampleRecord;
     return 0;
 }

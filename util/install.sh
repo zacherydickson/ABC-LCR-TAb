@@ -15,5 +15,5 @@ installFile="$installDir/$prog";
 execPath=$(readlink -f ${my_path}/run_abc.sh);
 
 echo -e "#!/bin/bash\n" >| $installFile;
-echo -e "$execPath" >> $installFile;
+echo -e "$execPath \$@" >> $installFile;
 chmod +x $installFile;
