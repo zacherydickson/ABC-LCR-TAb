@@ -533,6 +533,7 @@ namespace model{
     }
 
     size_t CModel::initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode& rootNode) const {
+        logger::Log("Initializing Sim Root Node ...",logger::DEBUG);
         //Object to keep track of the counts across tips, proteins, and data types
         size_t nProt = 0;
         for(int j : evalBlock){
@@ -543,6 +544,7 @@ namespace model{
             rootNode.value.vAbundance.push_back(abundance);
             nProt += state.vProtIdxs.size();
         }
+        logger::Log("Root Node initialized for block of %zd proteins",logger::DEBUG,nProt);
         return nProt;
     }
 
@@ -569,6 +571,7 @@ namespace model{
     //CUnifiedStepwiseOUModel -- concrete, private
     
     int CStepwiseOUModel::sampleAbundance(int protIdx, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const {
+        logger::Log("Sampling Abundance at node %s ...",logger::DEBUG+3,node.label.c_str());
         double selCoef = std::exp(-this->parameters.at("delta").value*time);
         double pTerm = parent.value.vAbundance[protIdx]*selCoef;
         double rTerm = root.value.vAbundance[protIdx]*(1.0-selCoef);
@@ -581,10 +584,12 @@ namespace model{
         //int abundance = stats::DiscreteTruncatedNormalQuantile(
         //        stats::generate_open_canonical(gen),
         //        meanAb, driftCoef,0.0,std::numeric_limits<double>::infinity());
+        logger::Log("Node %s abundance sampled at %d",logger::DEBUG+3,node.label.c_str(),abundance);
         return abundance;
     }
 
     int CStepwiseOUModel::sampleLength(int protIdx, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const {
+        logger::Log("Sampling Length at node %s ...",logger::DEBUG+3,node.label.c_str());
         double afc = (1.0+parent.value.vAbundance[protIdx]) / (1.0+root.value.vAbundance[protIdx]);
         double upsilonTerm = std::pow(afc,this->parameters.at("upsilon").value);
         double lambdaTerm = (parent.value.vLength[protIdx]+1)*this->parameters.at("lambda").value*time;
@@ -624,6 +629,7 @@ namespace model{
                 length = int(std::round(prop * length));
             }
         }
+        logger::Log("Node %s length sampled at %d",logger::DEBUG+3,node.label.c_str(),length);
         return length;
     }
 
@@ -634,6 +640,7 @@ namespace model{
     }
 
     void CStepwiseOUModel::sampleSimulationNode(const EvaluationBlock & evalBlock, SVModelStateNode & node, const SVModelStateNode & parent, const SVModelStateNode & root, double time, std::mt19937 & gen) const{
+        logger::Log("Sampling at node %s ...",logger::DEBUG+3,node.label.c_str());
         //Sample for the first protein
         int abundance = this->sampleAbundance(0,node,parent,root,time,gen);
         int length = this->sampleLength(0,node,parent,root,time,gen);
@@ -655,6 +662,7 @@ namespace model{
             node.value.vAbundance.push_back(abundance);
             node.value.vLength.push_back(length);
         }
+        logger::Log("Node %s sampling complete",logger::DEBUG+3,node.label.c_str());
     } //sampleSimulationNode
 
     bool CStepwiseOUModel::evalIsLess(int a, int b) const {
