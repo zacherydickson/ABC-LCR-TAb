@@ -853,7 +853,7 @@ int main(int argc, char ** argv){
         stream << vChains[0]->getModel() << "\n";
         logger::Log("Initial Model\n%s",logger::DEBUG,stream.str().c_str());
         if(vChains[0]->getModel().isFixed()){
-            logger::Log("The Prior is Fixed for all parameters, assuming the desired behaviour is evaluation of the logLikelihood of the model defined by the prior\n",logger::WARNING);
+            logger::Log("The Prior is Fixed for all parameters, assuming the desired behaviour is evaluation of the logLikelihood of the model defined by the prior",logger::WARNING);
             vChains[0]->estimateSimulationVariance();
             std::cout << vChains[0]->getLastEval() << "±" << vChains[0]->getEvaluationSD() << std::endl;
             return 0;
