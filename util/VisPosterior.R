@@ -309,11 +309,11 @@ pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 #burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
 burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
-#message("Calculating Multivariate Mode ...")
-#multiVarMode <- mvMode(df[RowstoKeep,col.names[-c(1,which(isFixed)+1)]])
-#multiVarMode[names(isFixed)[isFixed]] = df[1,names(isFixed)[isFixed]]
-#multiVarMode <- multiVarMode[col.names[-1]]
-#multiVarMode = unlist(multiVarMode)
+message("Calculating Multivariate Mode ...")
+multiVarMode <- mvMode(df[RowstoKeep,col.names[-c(1,which(isFixed)+1)]])
+multiVarMode[names(isFixed)[isFixed]] = df[1,names(isFixed)[isFixed]]
+multiVarMode <- multiVarMode[col.names[-1]]
+multiVarMode = unlist(multiVarMode)
 pointCol = rep("grey",length(RowstoKeep))
 modalDist <- getScaledModalDist(df[RowstoKeep,col.names[-1]],multiVarMode)
 pointCol[modalDist < quantile(modalDist,0.99)] = CIPalette["99"]
