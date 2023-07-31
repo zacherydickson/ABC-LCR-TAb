@@ -65,16 +65,16 @@ namespace chain {
             static void TuneSimVar(double alpha, size_t alphaHorizon, size_t n, size_t reEvalHorizon);
         //Methods
         public:
+            double estimateSimulationVariance();
             const model::CModel & getModel() const {return *(this->model);}
-            bool iterate(int threadId, std::unordered_set<std::string> paramNameSet, double temperature);
             double getEvaluationSD() const {return this->evaluationSD;}
             double getLastEval() const {return this->lastEval;}
+            bool iterate(int threadId, std::unordered_set<std::string> paramNameSet, double temperature);
             void swapModel(CChain & other);
         protected:
             double calcAcceptanceRatio(const model::CModel & m2, double temperature);
             void constructAdaptiveScales(); 
             void doEvaluation(model::CModel * model,bool bQuiet = false);
-            double estimateSimulationVariance();
     };
 
 };
