@@ -1,14 +1,17 @@
 args <- commandArgs(trailingOnly = T)
 
 if(length(args) < 1){
-    stop("Usage: Vis....R inFile.res (parses inFile.log also creates inFile.pdf and inFile.eval")
+    stop("Usage: Vis....R inFile.res [nThreads = 1] (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
 logFile <- sub("res$","log",resFile)
 pdfFile <- sub("res$","pdf",resFile)
 evalFile <- sub("res$","eval",resFile)
-#burnin <- as.numeric(args[2])
+nThreads <- as.numeric(args[2])
+if(is.na(nThreads)){
+    nThreads=1
+}
 
 if(any(resFile == c(logFile,pdfFile,evalFile))){
     stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
@@ -16,9 +19,13 @@ if(any(resFile == c(logFile,pdfFile,evalFile))){
 
 require("vioplot")
 require("mvtnorm")
+require("parallel")
 
+CL <- makeCluster(nThreads)
 
 ######## FUNCTIONS ##############
+
+
 
 parseLog <- function(file){
     lines <- scan(file,what="character",sep="\n")
@@ -96,16 +103,19 @@ densityJitter <- function(x,a=0,b=1){
 
 vioplotWPoints <- function(data,pointCol=NULL,mode=NULL,...){
     vioplot(data,...,side="left",plotCentre="line")
-    if(is.null(pointCol)){
-        pointCol = rep("black",nrow(data))
-    }
     if(is.null(ncol(data))){ #input is a vector
+        if(is.null(pointCol)){
+            pointCol = rep("black",length(data))
+        }
         dJit <- 1.05 + densityJitter(data,0,0.4)
         points(dJit,data,col=pointCol)
         if(!is.null(mode)){
             segments(1,mode,1.5,mode,col="black",lwd=2)
         }
         return(NULL)
+    }
+    if(is.null(pointCol)){
+        pointCol = rep("black",nrow(data))
     }
     dJit <- lapply(data,densityJitter,b=0.4)
     dJit <- mapply("+",dJit,1:ncol(data)+0.05,SIMPLIFY=F)
@@ -156,10 +166,10 @@ mvDensity <- function(point,mat,bw){
 
 gradientEst <- function(point,dens,mat,bw,factor=10^-2){
     p <- length(point)
-    jitPoint = point + apply(mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * factor
+    jitPoint = point + parApply(CL,mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * factor
     testPoints <- matrix(point,nrow=p,ncol=p,byrow=T)
     diag(testPoints) <- jitPoint
-    testDens <- apply(testPoints,1,mvDensity,mat=mat,bw=bw)
+    testDens <- parApply(CL,testPoints,1,mvDensity,mat=mat,bw=bw)
     (testDens - dens) / diag(testPoints - point)
 }
 
@@ -220,6 +230,16 @@ goldenSearch <- function(point,dens,mat,bw,gradient,tolProp=10^-6){
     list(point = point + pts$f1$x * gradient, dens = pts$f1$y)
 }
 
+getStandardizedMatrix <- function(df){
+    stdInfo <- parApply(CL,df,2,function(x){c(mean(x),sd(x))})
+    mat <- parSapply(CL,names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
+    #Take an initial guess of the mode at the point which is the mode for each individual
+    #component, also get the bandwidth estimate
+    densInfo <- parApply(CL,mat,2,function(x){dens <- density(x); c(dens$x[which.max(dens$y)],dens$bw)})
+    list(stdInfo=stdInfo,mat=mat,densInfo=densInfo)
+}
+
+
 ##Finds the multivariate Mode via a gradient ascent
 ##   Start at the point defined by the univariate modes
 ##   Until Sufficiently close to a peak
@@ -227,20 +247,15 @@ goldenSearch <- function(point,dens,mat,bw,gradient,tolProp=10^-6){
 ##       Use golden search to find the maximum density along the line segment from the
 ##         current point to the furthest in direction of the gradient
 ##       Set the current point to be the point at the maximum density
-mvMode <- function(df,tol=10^-4,gssTolProp=10^-6){
+mvMode <- function(stdMat,tol=10^-4,gssTolProp=10^-6){
     #Standardize the matrix to make density estimation easier
-    stdInfo <- apply(df,2,function(x){c(mean(x),sd(x))})
-    mat <- sapply(names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
-    #Take an initial guess of the mode at the point which is the mode for each individual
-    #component, also get the bandwidth estimate
-    densInfo <- apply(mat,2,function(x){dens <- density(x); c(dens$x[which.max(dens$y)],dens$bw)})
-    mode <- densInfo[1,]
-    bw <- mean(densInfo[2,])
-    modalDens <- mvDensity(mode,mat,bw)
+    mode <- stdMat$densInfo[1,]
+    bw <- mean(stdMat$densInfo[2,])
+    modalDens <- mvDensity(mode,stdMat$mat,bw)
     res <- list(point = mode, dens = modalDens)
     repeat {
-        gradient = gradientEst(res$point,res$dens,mat,bw)
-        res <- goldenSearch(res$point,res$dens,mat,bw,gradient,gssTolProp)
+        gradient = gradientEst(res$point,res$dens,stdMat$mat,bw)
+        res <- goldenSearch(res$point,res$dens,stdMat$mat,bw,gradient,gssTolProp)
         if(res$dens > modalDens){
             mode = res$point
             modalDens = res$dens
@@ -254,19 +269,55 @@ mvMode <- function(df,tol=10^-4,gssTolProp=10^-6){
         }
     }
     #Return to the original scales
-    mode * stdInfo[2,] + stdInfo[1,]
+    mode * stdMat$stdInfo[2,] + stdMat$stdInfo[1,]
 }
 
-getScaledModalDist <- function(df,mode){
-    stdInfo <- apply(df,2,function(x){c(mean(x),sd(x))})
-    mat <- sapply(names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
-    mode <- (mode - stdInfo[1,]) / stdInfo[2,]
-    apply(mat,1,function(x){sqrt(sum(abs(x - mode)^2))})
+getScaledModalDist <- function(stdMat,mode){
+    mode <- (mode - stdMat$stdInfo[1,]) / stdMat$stdInfo[2,]
+    apply(stdMat$mat,1,function(x){sqrt(sum((x - mode)^2))})
+}
+
+ColourByModalDistance <- function(stdMat,mode,ciPalette){
+    pointCol = rep("grey",n)
+    modalDist <- getScaledModalDist(stdMat,mode)
+    for(q in c(0.99,0.95,0.90)){
+        pointCol[modalDist <= quantile(modalDist, q, na.rm=T)] = ciPalette[as.character(q*100)]
+    }
+    pointCol
+}
+
+ColourByCredibility <- function(stdMat,mode,ciPalette, nPoints = 100){
+    n <- nrow(stdMat$mat)
+    pointCol = rep("grey",n)
+    modalDist <- getScaledModalDist(stdMat,mode)
+    bw <- mean(stdMat$densInfo[2,])
+    #Process densities in order fom close to the mode to far
+    densOrder <- order(modalDist)
+    #Take a sample of all the densities
+    sampleIdx <- as.integer(seq(1,n,l=nPoints))
+    densitySample <- parApply(CL,stdMat$mat[densOrder[sampleIdx],],1,mvDensity,mat=stdMat$mat,bw=bw)
+    #linearly interpolate densities between pairs of points
+    density <- densitySample[1]
+    for(i in 2:nPoints){
+        slope <- (densitySample[i] - densitySample[i-1]) / (sampleIdx[i] - sampleIdx[i-1])
+        density <- c(density,1:(diff(sampleIdx[(i-1):i]) * slope + densitySample[i-1]))
+    }
+    #Calculate cumulative densities and colour the points
+    density <- density / sum(density)
+    cumDensity <- cumsum(density)
+    for(q in c(0.99,0.95,0.90)){
+        pointCol[densOrder[cumDensity <= q]] = ciPalette[as.character(q*100)]
+    }
+    #return points back to the original order
+    pointCol[match(1:n,densOrder)]
 }
 
 #stop("Here")
 
 ######## MAIN ##############
+
+garbage <- clusterExport(CL,"mvDensity")
+garbage <- clusterEvalQ(CL,library(mvtnorm))
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
 df <- df[-1,]
@@ -310,15 +361,32 @@ pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 message("Calculating Multivariate Mode ...")
-multiVarMode <- mvMode(df[RowstoKeep,col.names[-c(1,which(isFixed)+1)]])
-multiVarMode[names(isFixed)[isFixed]] = df[1,names(isFixed)[isFixed]]
-multiVarMode <- multiVarMode[col.names[-1]]
-multiVarMode = unlist(multiVarMode)
-pointCol = rep("grey",length(RowstoKeep))
-modalDist <- getScaledModalDist(df[RowstoKeep,col.names[-1]],multiVarMode)
-pointCol[modalDist < quantile(modalDist,0.99)] = CIPalette["99"]
-pointCol[modalDist < quantile(modalDist,0.95)] = CIPalette["95"]
-pointCol[modalDist < quantile(modalDist,0.90)] = CIPalette["90"]
+standardizedMatrix <- getStandardizedMatrix(df[RowstoKeep,col.names[-c(1,which(isFixed)+1)]])
+multiVarMode <- mvMode(standardizedMatrix)
+if(sum(isFixed)){ #Need to add back info for fixed parameters
+    bw <- mean(standardizedMatrix$densInfo[2,])
+    for(cn in names(isFixed)[isFixed]){
+        mu <- df[1,cn]
+        multiVarMode[cn] = mu
+        cNames <- c(colnames(standardizedMatrix$stdInfo),cn)
+        standardizedMatrix$stdInfo <- cbind(standardizedMatrix$stdInfo,c(mu,1))
+        colnames(standardizedMatrix$stdInfo) <- cNames
+        standardizedMatrix$mat <- cbind(standardizedMatrix$mat,cn=rep(0,nrow(standardizedMatrix$mat)))
+        colnames(standardizedMatrix$mat) <- cNames
+        standardizedMatrix$densInfo <- cbind(standardizedMatrix$densInfo,cn=c(mu,bw))
+        colnames(standardizedMatrix$densInfo) <- cNames
+    }
+    multiVarMode <- multiVarMode[col.names[-1]]
+    standardizedMatrix$stdInfo <- standardizedMatrix$stdInfo[,col.names[-1]]
+    standardizedMatrix$mat <- standardizedMatrix$mat[,col.names[-1]]
+    standardizedMatrix$densInfo <- standardizedMatrix$densInfo[,col.names[-1]]
+    multiVarMode = unlist(multiVarMode)
+}
+#pointCol <- ColourByCredibility(standardizedMatrix,multiVarMode,CIPalette)
+pointCol <- ColourByModalDistance(standardizedMatrix,multiVarMode,CIPalette)
+pointCol = NULL
+
+
 message("Plotting ...")
 SwapIdx = SwapIdx - burnin
 SwapIdx = SwapIdx[SwapIdx > 0]
@@ -365,5 +433,7 @@ lines <- c(lines,sort(unlist(initLines)))
 fileConn<-file(evalFile)
 writeLines(lines,fileConn)
 close(fileConn)
+
+stopCluster(CL)
 
 message("Done")
