@@ -391,19 +391,13 @@ addFixedNames <- function(stdMat,isFixed,mu){
     if(attr(stdMat,"class") != "StandardizedMatrix"){
         stop("Attempt to addFixedNames from non-StandardizedMatrix object")
     }
-    #if(length(stdMat$mode) == 0){
-    #    stop("Attempt to addFixedNames to improperly initialized StandardizedMatrix")
-    #}
-    if(!sum(isFixed)){
-        return(stdMat)
-    }
     stdMat$names <- names(isFixed)
     #Add info as necessary
     fixedMu <- mu[isFixed]
     stdMat$uniMode <- c(stdMat$uniMode,fixedMu)
     stdMat$stdInfo <- cbind(stdMat$stdInfo,sapply(fixedMu,c,1))
     stdMat$mat <- cbind(stdMat$mat,sapply(fixedMu,function(i){rep(0,stdMat$n)}))
-    #stdMat$mode <- c(stdMat$mode,fixedMu)
+    stdMat$mode <- c(stdMat$mode,fixedMu)
     #Reorder
     for(member in c("uniMode","mode")){
         stdMat[[member]] <- stdMat[[member]][stdMat$names]
@@ -495,11 +489,14 @@ ColourByCredibility <- function(stdMat,ciPalette,defaultCol="black"){
     pointCol
 }
 
+scatterPlotMatrix <- function(stdMat,...){
+
+}
 
 ######## MAIN ##############
 
 
-#stop("Here")
+stop("Here")
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
 df <- df[-1,]
@@ -547,7 +544,6 @@ message("Calculating Multivariate Stats ...")
 StdMat <- getStandardizedMatrix(df[RowstoKeep,col.names[-1][!isFixed]])
 StdMat <- getDensityEst(StdMat)
 StdMat <- estimateMvMode(StdMat)
-StdMat <- addFixedNames(StdMat,isFixed,unlist(df[1,names(isFixed)]))
 StdMat <- estimateCredibilityRadii(StdMat)
 
 pointCol <- ColourByCredibility(StdMat,CIPalette)
@@ -578,12 +574,14 @@ for(cn in col.names){
 layout(matrix(1,ncol=1))
 par(mar = mar)
 garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep,cn],names=cn,pointCol,getRescaledMode(StdMat)[cn])});
+scatterPlotMatrix(StdMat);
 
 garbage <- dev.off()
 
 
 message("Outputting eval-prior ...")
-#Mode Estimation
+
+StdMat <- addFixedNames(StdMat,isFixed,unlist(df[1,names(isFixed)]))
 
 lines <- paste0(">",modelName)
 for(cn in col.names[-1]){
