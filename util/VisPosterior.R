@@ -5,6 +5,10 @@ if(length(args) < 1){
 }
 
 resFile <- args[1]
+#threads <- as.numeric(args[2])
+#if(is.na(threads)){
+#    threads <- 1
+#}
 logFile <- sub("res$","log",resFile)
 pdfFile <- sub("res$","pdf",resFile)
 evalFile <- sub("res$","eval",resFile)
@@ -15,7 +19,9 @@ if(any(resFile == c(logFile,pdfFile,evalFile))){
 }
 
 require("vioplot")
-require("mvtnorm")
+require("Rcpp")
+CPPSource <- "/home/zac/scripts/LCR/TemporalOrder/Primates/ABC2/util/VisPosterior.cpp"
+sourceCpp(CPPSource)
 
 
 ######## FUNCTIONS ##############
@@ -151,95 +157,156 @@ K_H <- function(p1,p2,mu,sigma){
     dmvnorm(p1-p2,mu,sigma)
 }
 
-#point - vector defining cordiates in multivariate space
-#mat - the matrix of values
-#bw - the bandwidth of the density estimate
-mvDensity <- function(point,mat,bw){
-    p <- length(point)
-    mu <- rep(0,p)
-    sigma <- diag(bw,p,p)
-    sum(parApply(CL,mat,1,K_H,p1=point,mu=mu,sigma=sigma))
-}
 
 gradientEst <- function(point,dens,mat,bw,factor=10^-2){
     p <- length(point)
     jitPoint = point + apply(mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * factor
     testPoints <- matrix(point,nrow=p,ncol=p,byrow=T)
     diag(testPoints) <- jitPoint
-    testDens <- apply(testPoints,1,mvDensity,mat=mat,bw=bw)
+    testDens <- apply(testPoints,1,calculateMVDensity,data=mat,bw=bw)
     (testDens - dens) / diag(testPoints - point)
 }
 
-#Golden search assumes unimodal
-goldenSearch <- function(point,dens,mat,bw,gradient,tolProp=10^-6){
-    phi = (1 + sqrt(5)) / 2
-    #Determine the extreme point; find the distance to the boundary in the gradient
-    #direction for each dimension, the extreme is the point at the nearest boundary
-    extrema <- mapply("[",asplit(apply(mat,2,range),2),(sign(gradient)+1)/2 + 1)
-    #The maximum number of steps in the gradient Direction to take
-    #The golden search will find the number of gradient steps to take to find a maximum
-    #density
-    limitDist <- min(abs(point - extrema) / abs(gradient))
-    #The stopping point; when the smallest distance being considered is some fraction of
-    #the total length
-    tol = limitDist * tolProp
-    #initialize probe points; f1(lower), f2(lower-mid), f3(upper), f4(upper-mid)
-    pts <- list(f1=list(x=0,y=dens),f2 = list(x=limitDist / (1+phi),y=-1), f3 = list(x=limitDist,y=-1), f4 = list(x=-1,y=-1));
-    mvDensityAtStep <- function(step){
-        mvDensity(point + step * gradient,mat,bw)
-    }
-    #Reduce the search area until a lower-mid point is found which is greater than the
-    #lower point; Esentially reducing the problem to finding the nearest local maximum to
-    #the lower point
+findUpperMult <- function(point,val,jitSize,gradient,FUN,...){
+    mult <- 1
     repeat {
-        pts$f2$y = mvDensityAtStep(pts$f2$x)
-        if(pts$f2$y < pts$f1$y){
-            pts$f3 = pts$f2
-            pts$f2$x = (pts$f3$x - pts$f1$x) / (1+phi);
-        } else {
-            break;
+        point2 <- mult*jitSize*gradient + point 
+        val2 <- FUN(point2,...)
+        if(val2 <= val){
+            break
         }
+        mult <- mult * 2
     }
-    if(pts$f3$y < 0){
-        pts$f3$y = mvDensityAtStep(pts$f3$x)
-    }
-    repeat {
-        pts$f4$x = pts$f1$x + (pts$f3$x - pts$f2$x)
-        pts$f4$y = mvDensityAtStep(pts$f4$x)
-        #Set f4 always to be the righmost of f2 and f4
-        if(pts$f4$x > pts$f2$x){
-            tmp <- pts$f2
-            pts$f2 = pts$f4
-            pts$f4 = tmp
-        }
-        #Check stopping rule
-        if(pts$f4$x - pts$f1$x < tol){
-            break;
-        }
-        #If upper-mid is greater than lower-mid search lower-mid to upper
-        if(pts$f4$y > pts$f2$y){
-            pts$f1 = pts$f2
-            pts$f2 = pts$f4
-        } else { #search lower to upper-mid
-            pts$f3 = pts$f4
-        }
-    }
-    list(point = point + pts$f1$x * gradient, dens = pts$f1$y)
+    mult
 }
 
-sampleDensity <- function(x,n){
-    d <- density(x)
-    sample(d$x,n,replace=T,p=d$y)
+generalizedGoldenSearch <- function(l,r,FUN,tolProp=10^-6,...){
+    phi <- (1+sqrt(5))/2
+    lVal <- FUN(l,...)
+    rVal <- FUN(r,...)
+    p1 <- l + (r-l) / (1+phi)
+    p1Val <- FUN(p1,...)
+    tol <- (r-l) * tolProp
+    repeat {
+        p2 <- l + (r - p1)
+        p2Val <- FUN(p2,...)
+        #Define p1 to always be the left of the two probe points
+        if(p1 > p2){
+            tmp <- p1
+            p1 <- p2
+            p2 <- tmp
+            tmp <- p1Val
+            p1Val <- p2Val
+            p2Val <- tmp
+        }
+        if(p2 - l < tol){
+            break;
+        }
+        if(p2Val > p1Val){
+            l <- p1
+            lVal <- p1Val
+            p1 <- p2
+            p1Val <- p2Val
+        } else {
+            r <- p2
+            rVal <- p2Val
+        }
+    }
+    c(p1,p1Val)
 }
+
+optimizeMVMode <- function(point,val,mat,bw,tolProp=10^-4,gssTolProp=10^-6,jitFactor=10^-2){
+    jitSize <- apply(mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * jitFactor
+    tol <- sqrt(tolProp^2*length(point))
+    repeat {
+        gradient <-  gradientEst(point,val,mat=mat,bw=bw)
+        if(sqrt(sum(gradient^2)) < tol){
+            break
+        }
+        r <- findUpperMult(point,val,jitSize,gradient,calculateMVDensity,data=mat,bw=bw) 
+        if(r <= 1){
+            break
+        }
+        res <- generalizedGoldenSearch(1,r,function(mult,...){p <- point + mult*jitSize*gradient; calculateMVDensity(point,...)},data=mat,bw=bw)
+        if(res[2] < val){
+            break
+        }
+        val <- res[2]
+        point <- point + res[1]*jitSize*gradient
+    }
+    list(point=point,val=val)
+}
+
+##Golden search assumes unimodal
+#goldenSearch <- function(point,dens,mat,bw,gradient,tolProp=10^-6){
+#    phi = (1 + sqrt(5)) / 2
+#    #Determine the extreme point; find the distance to the boundary in the gradient
+#    #direction for each dimension, the extreme is the point at the nearest boundary
+#    extrema <- mapply("[",asplit(apply(mat,2,range),2),(sign(gradient)+1)/2 + 1)
+#    #The maximum number of steps in the gradient Direction to take
+#    #The golden search will find the number of gradient steps to take to find a maximum
+#    #density
+#    limitDist <- min(abs(point - extrema) / abs(gradient))
+#    #The stopping point; when the smallest distance being considered is some fraction of
+#    #the total length
+#    tol = limitDist * tolProp
+#    #initialize probe points; f1(lower), f2(lower-mid), f3(upper), f4(upper-mid)
+#    pts <- list(f1=list(x=0,y=dens),f2 = list(x=limitDist / (1+phi),y=-1), f3 = list(x=limitDist,y=-1), f4 = list(x=-1,y=-1));
+#    mvDensityAtStep <- function(step){
+#        calculateMVDensity(point + step * gradient,mat,bw)
+#    }
+#    #Reduce the search area until a lower-mid point is found which is greater than the
+#    #lower point; Esentially reducing the problem to finding the nearest local maximum to
+#    #the lower point
+#    repeat {
+#        pts$f2$y = mvDensityAtStep(pts$f2$x)
+#        if(pts$f2$y < pts$f1$y){
+#            pts$f3 = pts$f2
+#            pts$f2$x = (pts$f3$x - pts$f1$x) / (1+phi);
+#        } else {
+#            break;
+#        }
+#    }
+#    if(pts$f3$y < 0){
+#        pts$f3$y = mvDensityAtStep(pts$f3$x)
+#    }
+#    repeat {
+#        pts$f4$x = pts$f1$x + (pts$f3$x - pts$f2$x)
+#        pts$f4$y = mvDensityAtStep(pts$f4$x)
+#        #Set f4 always to be the righmost of f2 and f4
+#        if(pts$f4$x > pts$f2$x){
+#            tmp <- pts$f2
+#            pts$f2 = pts$f4
+#            pts$f4 = tmp
+#        }
+#        #Check stopping rule
+#        if(pts$f4$x - pts$f1$x < tol){
+#            break;
+#        }
+#        #If upper-mid is greater than lower-mid search lower-mid to upper
+#        if(pts$f4$y > pts$f2$y){
+#            pts$f1 = pts$f2
+#            pts$f2 = pts$f4
+#        } else { #search lower to upper-mid
+#            pts$f3 = pts$f4
+#        }
+#    }
+#    list(point = point + pts$f1$x * gradient, dens = pts$f1$y)
+#}
+#
+#sampleDensity <- function(x,n){
+#    d <- density(x)
+#    sample(d$x,n,replace=T,p=d$y)
+#}
 
 ##MULTIVARIATE MODE AND CREDIBILITY REGION FUNCTIONS
 
 getStandardizedMatrix <- function(df){
-    stdInfo <- parApply(CL,df,2,function(x){c(mean(x),sd(x))})
-    mat <- parSapply(CL,names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
+    stdInfo <- apply(df,2,function(x){c(mean(x),sd(x))})
+    mat <- sapply(names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
     #Take an initial guess of the mode at the point which is the mode for each individual
     #component, also get the bandwidth estimate
-    densInfo <- parApply(CL,mat,2,function(x){dens <- density(x); c(dens$x[which.max(dens$y)],dens$bw)})
+    densInfo <- apply(mat,2,function(x){dens <- density(x); c(dens$x[which.max(dens$y)],dens$bw)})
     bw <- mean(densInfo[2,])
     uniMode <- densInfo[1,]
     #The general info
@@ -250,9 +317,10 @@ getStandardizedMatrix <- function(df){
     obj$names <- colnames(stdInfo)
     #Add Fields to be added
     obj$mode <- numeric(0)
-    obj$modalDist <- numeric(0)
+    obj$modalDensity <- numeric(0)
     obj$density <- numeric(0)
-    obj$credRedii <- numeric(0)
+    obj$modalDist <- numeric(0)
+    obj$credRadii <- numeric(0)
     obj
 }
 
@@ -296,19 +364,36 @@ getStandardizedMatrix <- function(df){
 #    #mode * stdMat$stdInfo[2,] + stdMat$stdInfo[1,]
 #}
 
-estimateMvMode <- function(stdMat,ess){
-    points  <- rbind(stdMat$uniMode,apply(StdMat$mat,2,sampleDensity,n=ess))
-    densSample <- apply(points,1,mvDensity,mat=stdMat$mat,bw=stdMat$bw)
+
+getDensityEst <- function(stdMat) {
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to getDensityEst from non-StandardizedMatrix object")
+    }
+    stdMat$density <- apply(stdMat$mat,1,calculateMVDensity,data=stdMat$mat,bw=stdMat$bw)
+    stdMat
 }
 
+estimateMvMode <- function(stdMat,...){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to estimateMvMode from non-StandardizedMatrix object")
+    }
+    if(length(stdMat$density) == 0){
+        stop("Attempt to estimateMvMode to improperly initialized StandardizedMatrix")
+    }
+    res <- optimizeMVMode(stdMat$mat[which.max(stdMat$density),],max(stdMat$density),stdMat$mat,stdMat$bw,...)
+    stdMat$mode <- res$point
+    stdMat$modalDensity <- res$val
+    stdMat$modalDist <- apply(stdMat$mat,1,function(x){sqrt(sum((x - stdMat$mode)^2))})
+    stdMat
+}
 
 addFixedNames <- function(stdMat,isFixed,mu){
     if(attr(stdMat,"class") != "StandardizedMatrix"){
         stop("Attempt to addFixedNames from non-StandardizedMatrix object")
     }
-    if(length(stdMat$mode) == 0){
-        stop("Attempt to addFixedNames to improperly initialized StandardizedMatrix")
-    }
+    #if(length(stdMat$mode) == 0){
+    #    stop("Attempt to addFixedNames to improperly initialized StandardizedMatrix")
+    #}
     if(!sum(isFixed)){
         return(stdMat)
     }
@@ -318,7 +403,7 @@ addFixedNames <- function(stdMat,isFixed,mu){
     stdMat$uniMode <- c(stdMat$uniMode,fixedMu)
     stdMat$stdInfo <- cbind(stdMat$stdInfo,sapply(fixedMu,c,1))
     stdMat$mat <- cbind(stdMat$mat,sapply(fixedMu,function(i){rep(0,stdMat$n)}))
-    stdMat$mode <- c(stdMat$mode,fixedMu)
+    #stdMat$mode <- c(stdMat$mode,fixedMu)
     #Reorder
     for(member in c("uniMode","mode")){
         stdMat[[member]] <- stdMat[[member]][stdMat$names]
@@ -354,39 +439,44 @@ ColourByModalDistance <- function(stdMat,ciPalette,default="black"){
     pointCol
 }
 
-EstimateMVDensity <- function(stdMat,nProp=0.001){
-    if(attr(stdMat,"class") != "StandardizedMatrix"){
-        stop("Attempt to EstimateMVDensity with a non-StandardizedMatrix object")
-    }
-    if(length(stdMat$modalDist) == 0){
-        stop("Attempt to EstimateMVDensity with improperly initialized StandardizedMatrix")
-    }
-    n <- stdMat$n
-    modalDist <- stdMat$modalDist
-    #Process densities in order fom close to the mode to far
-    densOrder <- order(modalDist)
-    #Take a sample of all the densities
-    nPoints = max(2,as.integer(nProp*n))
-    sampleIdx <- as.integer(seq(1,n,l=nPoints))
-    densitySample <- apply(stdMat$mat[densOrder[sampleIdx],],1,mvDensity,mat=stdMat$mat,bw=stdMat$bw)
-    #linearly interpolate densities between pairs of points
-    density <- densitySample[1]
-    for(i in 2:nPoints){
-        slope <- (densitySample[i] - densitySample[i-1]) / (sampleIdx[i] - sampleIdx[i-1])
-        density <- c(density,1:(diff(sampleIdx[(i-1):i]) * slope + densitySample[i-1]))
-    }
-    #Put densities back into the order of the points
-    stdMat$density <- density[match(1:n,densOrder)]
-    stdMat
-}
+#EstimateMVDensity <- function(stdMat,nProp=0.001){
+#    if(attr(stdMat,"class") != "StandardizedMatrix"){
+#        stop("Attempt to EstimateMVDensity with a non-StandardizedMatrix object")
+#    }
+#    if(length(stdMat$modalDist) == 0){
+#        stop("Attempt to EstimateMVDensity with improperly initialized StandardizedMatrix")
+#    }
+#    n <- stdMat$n
+#    modalDist <- stdMat$modalDist
+#    #Process densities in order fom close to the mode to far
+#    densOrder <- order(modalDist)
+#    #Take a sample of all the densities
+#    nPoints = max(2,as.integer(nProp*n))
+#    sampleIdx <- as.integer(seq(1,n,l=nPoints))
+#    densitySample <- apply(stdMat$mat[densOrder[sampleIdx],],1,calculateMVDensity,mat=stdMat$mat,bw=stdMat$bw)
+#    #linearly interpolate densities between pairs of points
+#    density <- densitySample[1]
+#    for(i in 2:nPoints){
+#        slope <- (densitySample[i] - densitySample[i-1]) / (sampleIdx[i] - sampleIdx[i-1])
+#        density <- c(density,1:(diff(sampleIdx[(i-1):i]) * slope + densitySample[i-1]))
+#    }
+#    #Put densities back into the order of the points
+#    stdMat$density <- density[match(1:n,densOrder)]
+#    stdMat
+#}
 
-EstimateCredibilityRadii <- function(stdMat){
+estimateCredibilityRadii <- function(stdMat,cutoffs = c(0.9,0.95,0.99)){
     if(attr(stdMat,"class") != "StandardizedMatrix"){
         stop("Attempt to EstimateCredibilityRadii with a non-StandardizedMatrix object")
     }
-    if(length(stdMat$density) == 0){
+    if(length(stdMat$modalDist) == 0 || length(stdMat$density) == 0){
         stop("Attempt to EstimateCredibilityRadii with improperly initialized StandardizedMatrix")
     }
+    distOrder <- order(stdMat$modalDist)
+    cumProp <- cumsum(stdMat$density[distOrder]) / sum(stdMat$density)
+    idx <- distOrder[sapply(cutoffs,function(x){min(which(cumProp > x))})]
+    stdMat$credRadii <- setNames(c(0,stdMat$modalDist[idx]),c(0,cutoffs*100))
+    stdMat
 }
 
 
@@ -408,10 +498,8 @@ ColourByCredibility <- function(stdMat,ciPalette,defaultCol="black"){
 
 ######## MAIN ##############
 
-garbage <- clusterExport(CL,"mvDensity")
-garbage <- clusterEvalQ(CL,library(mvtnorm))
 
-stop("Here")
+#stop("Here")
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
 df <- df[-1,]
@@ -456,17 +544,15 @@ burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 
 message("Calculating Multivariate Stats ...")
-StdMat <- getStandardizedMatrix(df[RowstoKeep,col.names[-c(1,which(isFixed)+1)]]) #|>
-StdMat$mode <- StdMat$uniMode |> addFixedNames(isFixed,unlist(df[1,col.names[-1]]))
-    #estimateMvMode() |>
-    #addFixedNames(isFixed,unlist(df[1,col.names[-1]])) |>
-    #getScaledModalDist() |>
-    #estimateMVDensity() |>
-    #estimateCredibilityRadii()
+StdMat <- getStandardizedMatrix(df[RowstoKeep,col.names[-1][!isFixed]])
+StdMat <- getDensityEst(StdMat)
+StdMat <- estimateMvMode(StdMat)
+StdMat <- addFixedNames(StdMat,isFixed,unlist(df[1,names(isFixed)]))
+StdMat <- estimateCredibilityRadii(StdMat)
 
-#pointCol <- ColourByCredibility(StdMat,CIPalette)
+pointCol <- ColourByCredibility(StdMat,CIPalette)
 #pointCol <- ColourByModalDistance(StdMat,CIPalette)
-pointCol = NULL
+#pointCol = NULL
 
 
 message("Plotting ...")
@@ -491,7 +577,7 @@ for(cn in col.names){
 }
 layout(matrix(1,ncol=1))
 par(mar = mar)
-garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep,cn],names=cn,pointCol,StdMat$mode[cn])});
+garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep,cn],names=cn,pointCol,getRescaledMode(StdMat)[cn])});
 
 garbage <- dev.off()
 
@@ -503,7 +589,7 @@ lines <- paste0(">",modelName)
 for(cn in col.names[-1]){
     mode <- df[1,cn];
     if(!isFixed[cn]){
-        mode <- round(StdMat$mode[cn],7)
+        mode <- round(getRescaledMode(StdMat)[cn],7)
     }
     lines <- c(lines,paste0(cn,"\tFixed\tmu:",mode))
 }
