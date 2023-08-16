@@ -1,31 +1,33 @@
 args <- commandArgs(trailingOnly = T)
 
 if(length(args) < 1){
-    stop("Usage: Vis....R inFile.res [nThreads = 1] (parses inFile.log also creates inFile.pdf and inFile.eval")
+    stop("Usage: Vis....R inFile.res (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
+#threads <- as.numeric(args[2])
+#if(is.na(threads)){
+#    threads <- 1
+#}
 logFile <- sub("res$","log",resFile)
 pdfFile <- sub("res$","pdf",resFile)
 evalFile <- sub("res$","eval",resFile)
-nThreads <- as.numeric(args[2])
-if(is.na(nThreads)){
-    nThreads=1
-}
+#burnin <- as.numeric(args[2])
 
 if(any(resFile == c(logFile,pdfFile,evalFile))){
     stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
 }
 
 require("vioplot")
-require("mvtnorm")
-require("parallel")
+require("Rcpp")
+CPPSource <- "/home/zac/scripts/LCR/TemporalOrder/Primates/ABC2/util/VisPosterior.cpp"
+sourceCpp(CPPSource)
 
-CL <- makeCluster(nThreads)
+ColourPalette <- c(SpanishGrey="#989898",SeaGreen="#388659",Coral="#FF7F50",SteelBlue="#4682B4",Veronica="#A020F0",LightBlue="#ADD8E6")
+#CIPalette = setNames(c("grey","#7A9CC6","#B3D2B2","#FFFD98"),c("0","90","95","99"))
+CIPalette = setNames(ColourPalette[c("Coral","Veronica","SteelBlue","LightBlue","SpanishGrey")],c("0","50","90","95","99"))
 
 ######## FUNCTIONS ##############
-
-
 
 parseLog <- function(file){
     lines <- scan(file,what="character",sep="\n")
@@ -101,31 +103,6 @@ densityJitter <- function(x,a=0,b=1){
     jitter
 }
 
-vioplotWPoints <- function(data,pointCol=NULL,mode=NULL,...){
-    vioplot(data,...,side="left",plotCentre="line")
-    if(is.null(ncol(data))){ #input is a vector
-        if(is.null(pointCol)){
-            pointCol = rep("black",length(data))
-        }
-        dJit <- 1.05 + densityJitter(data,0,0.4)
-        points(dJit,data,col=pointCol)
-        if(!is.null(mode)){
-            segments(1,mode,1.5,mode,col="black",lwd=2)
-        }
-        return(NULL)
-    }
-    if(is.null(pointCol)){
-        pointCol = rep("black",nrow(data))
-    }
-    dJit <- lapply(data,densityJitter,b=0.4)
-    dJit <- mapply("+",dJit,1:ncol(data)+0.05,SIMPLIFY=F)
-    mapply(function(x,y){points(x,y,col=pointCol)},dJit,data)
-    if(!is.null(mode)){
-        segments(1:length(data),mode,1:length(data)+ 0.5,mode,col="black",lwd=2)
-    }
-
-    return(NULL)
-}
 
 mESSBurninEst <- function(p,a=0.05,e=0.05){
     2^(2/p) * pi / (p*gamma(p/2))^(2/p) * qchisq(1-a,p) / e^2
@@ -146,178 +123,402 @@ mBM <- function(df){
     result * b_n / (a_n - 1)
 }
 
+eSS <- function(df){
+    sampleCov <- cov(df)
+    mBMEst <- mBM(df)
+    nrow(df) * (det(sampleCov)/det(mBMEst))^(1/ncol(df))
+}
+
 modeEst <- function(x){
    dens <- density(x[!is.na(x)])
    dens$x[which.max(dens$y)]
 }
 
-#point - vector defining cordiates in multivariate space
-#mat - the matrix of values
-#bw - the bandwidth of the density estimate
-mvDensity <- function(point,mat,bw){
-    p <- length(point)
-    mu <- rep(0,p)
-    sigma <- diag(bw,p,p)
-    K_H <- function(x){
-        dmvnorm(point - x,mu,sigma)
-    }
-    sum(apply(mat,1,K_H))
-}
+#### OPTIMIZATION FUNCTIONS
 
 gradientEst <- function(point,dens,mat,bw,factor=10^-2){
     p <- length(point)
-    jitPoint = point + parApply(CL,mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * factor
+    jitPoint = point + apply(mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * factor
     testPoints <- matrix(point,nrow=p,ncol=p,byrow=T)
     diag(testPoints) <- jitPoint
-    testDens <- parApply(CL,testPoints,1,mvDensity,mat=mat,bw=bw)
+    testDens <- apply(testPoints,1,calculateMVDensity,data=mat,bw=bw)
     (testDens - dens) / diag(testPoints - point)
 }
 
-#Golden search assumes unimodal
-goldenSearch <- function(point,dens,mat,bw,gradient,tolProp=10^-6){
-    phi = (1 + sqrt(5)) / 2
-    #Determine the extreme point; find the distance to the boundary in the gradient
-    #direction for each dimension, the extreme is the point at the nearest boundary
-    extrema <- mapply("[",asplit(apply(mat,2,range),2),(sign(gradient)+1)/2 + 1)
-    #The maximum number of steps in the gradient Direction to take
-    #The golden search will find the number of gradient steps to take to find a maximum
-    #density
-    limitDist <- min(abs(point - extrema) / abs(gradient))
-    #The stopping point; when the smallest distance being considered is some fraction of
-    #the total length
-    tol = limitDist * tolProp
-    #initialize probe points; f1(lower), f2(lower-mid), f3(upper), f4(upper-mid)
-    pts <- list(f1=list(x=0,y=dens),f2 = list(x=limitDist / (1+phi),y=-1), f3 = list(x=limitDist,y=-1), f4 = list(x=-1,y=-1));
-    mvDensityAtStep <- function(step){
-        mvDensity(point + step * gradient,mat,bw)
-    }
-    #Reduce the search area until a lower-mid point is found which is greater than the
-    #lower point; Esentially reducing the problem to finding the nearest local maximum to
-    #the lower point
+findUpperMult <- function(point,val,jitSize,gradient,FUN,...){
+    mult <- 1
     repeat {
-        pts$f2$y = mvDensityAtStep(pts$f2$x)
-        if(pts$f2$y < pts$f1$y){
-            pts$f3 = pts$f2
-            pts$f2$x = (pts$f3$x - pts$f1$x) / (1+phi);
-        } else {
-            break;
-        }
-    }
-    if(pts$f3$y < 0){
-        pts$f3$y = mvDensityAtStep(pts$f3$x)
-    }
-    repeat {
-        pts$f4$x = pts$f1$x + (pts$f3$x - pts$f2$x)
-        pts$f4$y = mvDensityAtStep(pts$f4$x)
-        #Set f4 always to be the righmost of f2 and f4
-        if(pts$f4$x > pts$f2$x){
-            tmp <- pts$f2
-            pts$f2 = pts$f4
-            pts$f4 = tmp
-        }
-        #Check stopping rule
-        if(pts$f4$x - pts$f1$x < tol){
-            break;
-        }
-        #If upper-mid is greater than lower-mid search lower-mid to upper
-        if(pts$f4$y > pts$f2$y){
-            pts$f1 = pts$f2
-            pts$f2 = pts$f4
-        } else { #search lower to upper-mid
-            pts$f3 = pts$f4
-        }
-    }
-    list(point = point + pts$f1$x * gradient, dens = pts$f1$y)
-}
-
-getStandardizedMatrix <- function(df){
-    stdInfo <- parApply(CL,df,2,function(x){c(mean(x),sd(x))})
-    mat <- parSapply(CL,names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
-    #Take an initial guess of the mode at the point which is the mode for each individual
-    #component, also get the bandwidth estimate
-    densInfo <- parApply(CL,mat,2,function(x){dens <- density(x); c(dens$x[which.max(dens$y)],dens$bw)})
-    list(stdInfo=stdInfo,mat=mat,densInfo=densInfo)
-}
-
-
-##Finds the multivariate Mode via a gradient ascent
-##   Start at the point defined by the univariate modes
-##   Until Sufficiently close to a peak
-##       Evaluate the gradient at the current point
-##       Use golden search to find the maximum density along the line segment from the
-##         current point to the furthest in direction of the gradient
-##       Set the current point to be the point at the maximum density
-mvMode <- function(stdMat,tol=10^-4,gssTolProp=10^-6){
-    #Standardize the matrix to make density estimation easier
-    mode <- stdMat$densInfo[1,]
-    bw <- mean(stdMat$densInfo[2,])
-    modalDens <- mvDensity(mode,stdMat$mat,bw)
-    res <- list(point = mode, dens = modalDens)
-    repeat {
-        gradient = gradientEst(res$point,res$dens,stdMat$mat,bw)
-        res <- goldenSearch(res$point,res$dens,stdMat$mat,bw,gradient,gssTolProp)
-        if(res$dens > modalDens){
-            mode = res$point
-            modalDens = res$dens
-        } else {
+        point2 <- mult*jitSize*gradient + point 
+        val2 <- FUN(point2,...)
+        if(val2 <= val){
             break
         }
-        gradMag = sqrt(sum(gradient ^2))
-        #Stopping Point: At a Peak the slope be zero
-        if(gradMag < sqrt(length(mode)) * tol){
+        mult <- mult * 2
+    }
+    mult
+}
+
+generalizedGoldenSearch <- function(l,r,FUN,tolProp=10^-6,...){
+    phi <- (1+sqrt(5))/2
+    lVal <- FUN(l,...)
+    rVal <- FUN(r,...)
+    p1 <- l + (r-l) / (1+phi)
+    p1Val <- FUN(p1,...)
+    tol <- (r-l) * tolProp
+    repeat {
+        p2 <- l + (r - p1)
+        p2Val <- FUN(p2,...)
+        #Define p1 to always be the left of the two probe points
+        if(p1 > p2){
+            tmp <- p1
+            p1 <- p2
+            p2 <- tmp
+            tmp <- p1Val
+            p1Val <- p2Val
+            p2Val <- tmp
+        }
+        if(p2 - l < tol){
             break;
         }
+        if(p2Val > p1Val){
+            l <- p1
+            lVal <- p1Val
+            p1 <- p2
+            p1Val <- p2Val
+        } else {
+            r <- p2
+            rVal <- p2Val
+        }
     }
-    #Return to the original scales
-    mode * stdMat$stdInfo[2,] + stdMat$stdInfo[1,]
+    c(p1,p1Val)
 }
 
-getScaledModalDist <- function(stdMat,mode){
-    mode <- (mode - stdMat$stdInfo[1,]) / stdMat$stdInfo[2,]
-    apply(stdMat$mat,1,function(x){sqrt(sum((x - mode)^2))})
+optimizeMVMode <- function(point,val,mat,bw,tolProp=10^-4,gssTolProp=10^-6,jitFactor=10^-2){
+    jitSize <- apply(mat,2,function(x){min(abs(diff(sort(unique(x)))))}) * jitFactor
+    tol <- sqrt(tolProp^2*length(point))
+    repeat {
+        gradient <-  gradientEst(point,val,mat=mat,bw=bw)
+        if(sqrt(sum(gradient^2)) < tol){
+            break
+        }
+        r <- findUpperMult(point,val,jitSize,gradient,calculateMVDensity,data=mat,bw=bw) 
+        if(r <= 1){
+            break
+        }
+        res <- generalizedGoldenSearch(1,r,function(mult,...){p <- point + mult*jitSize*gradient; calculateMVDensity(point,...)},data=mat,bw=bw)
+        if(res[2] < val){
+            break
+        }
+        val <- res[2]
+        point <- point + res[1]*jitSize*gradient
+    }
+    list(point=point,val=val)
 }
 
-ColourByModalDistance <- function(stdMat,mode,ciPalette){
-    pointCol = rep("grey",n)
-    modalDist <- getScaledModalDist(stdMat,mode)
-    for(q in c(0.99,0.95,0.90)){
-        pointCol[modalDist <= quantile(modalDist, q, na.rm=T)] = ciPalette[as.character(q*100)]
+##MULTIVARIATE MODE AND CREDIBILITY REGION FUNCTIONS
+
+getStandardizedMatrix <- function(df){
+    stdInfo <- apply(df,2,function(x){c(mean(x),sd(x))})
+    mat <- sapply(names(df),function(i){(df[,i]- stdInfo[1,i])/stdInfo[2,i]})
+    #Take an initial guess of the mode at the point which is the mode for each individual
+    #component, also get the bandwidth estimate
+    densInfo <- apply(mat,2,function(x){dens <- density(x); c(dens$x[which.max(dens$y)],dens$bw)})
+    bw <- mean(densInfo[2,])
+    uniMode <- densInfo[1,]
+    #The general info
+    obj <- list(stdInfo=stdInfo,mat=mat,bw=bw,uniMode=uniMode)
+    #Add some metadata
+    attr(obj,"class") <- "StandardizedMatrix"
+    obj$n = nrow(df)
+    obj$names <- colnames(stdInfo)
+    obj$m = length(obj$names)
+    #Add Fields to be added
+    obj$mode <- numeric(0)
+    obj$modalDensity <- numeric(0)
+    obj$density <- numeric(0)
+    obj$modalDist <- numeric(0)
+    obj$credRadii <- numeric(0)
+    obj
+}
+
+getDensityEst <- function(stdMat) {
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to getDensityEst from non-StandardizedMatrix object")
     }
+    stdMat$density <- apply(stdMat$mat,1,calculateMVDensity,data=stdMat$mat,bw=stdMat$bw)
+    stdMat
+}
+
+estimateMvMode <- function(stdMat,...){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to estimateMvMode from non-StandardizedMatrix object")
+    }
+    if(length(stdMat$density) == 0){
+        stop("Attempt to estimateMvMode to improperly initialized StandardizedMatrix")
+    }
+    res <- optimizeMVMode(stdMat$mat[which.max(stdMat$density),],max(stdMat$density),stdMat$mat,stdMat$bw,...)
+    stdMat$mode <- res$point
+    stdMat$modalDensity <- res$val
+    stdMat$modalDist <- apply(stdMat$mat,1,function(x){sqrt(sum((x - stdMat$mode)^2))})
+    stdMat
+}
+
+#subsetStdMat can alos be used to reorder columns
+subsetStdMat <- function(stdMat,names){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to subsetStdMat from non-StandardizedMatrix object")
+    }
+    isValid = prod(sapply(c("uniMode","mode","stdInfo","mat"),function(i){length(stdMat[[i]])}))
+    if(!isValid){
+        stop("Attempt to subsetStdMat before finding the mode")
+    }
+    if(length(names) == stdMat$m && all(stdMat$names == names)){
+        #All names present and in order
+        return(stdMat)
+    }
+    if(length(names) > stdMat$m || any(! names %in% stdMat$names)){
+        stop("Attempt to subsetStdMat with non-existant names")
+    }
+    stdMat$names <- names
+    stdMat$m <- length(stdMat$names)
+    for(member in c("uniMode","mode")){
+        stdMat[[member]] <- stdMat[[member]][stdMat$names]
+    }
+    for(member in c("stdInfo","mat")){
+        stdMat[[member]] <- stdMat[[member]][,stdMat$names]
+    }
+    stdMat
+}
+
+addFixedNames <- function(stdMat,isFixed,mu){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to addFixedNames from non-StandardizedMatrix object")
+    }
+    if(length(stdMat$mode) == 0){
+        stop("Attempt to addFixedNames to StandardizedMatrix before finding mode")
+    }
+    if(!sum(isFixed)){
+        return(stdMat)
+    }
+    #Add info as necessary
+    fixedMu <- mu[isFixed]
+    stdMat$uniMode <- c(stdMat$uniMode,fixedMu)
+    stdMat$stdInfo <- cbind(stdMat$stdInfo,sapply(fixedMu,c,0))
+    stdMat$mat <- cbind(stdMat$mat,sapply(fixedMu,function(i){rep(0,stdMat$n)}))
+    stdMat$mode <- c(stdMat$mode,fixedMu)
+    #Reorder
+    stdMat$names <- names(stdMat$mode)
+    stdMat$m <- length(stdMat$names)
+    subsetStdMat(stdMat,names(isFixed)) 
+}
+
+getRescaledMode <- function(stdMat){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to get RescaledMode from non-StandardizedMatrix object")
+    }
+    if(length(stdMat$mode) == 0){
+        stop("Attempt to get RescaledMode from improperly initialized StandardizedMatrix")
+    }
+    stdMat$mode * stdMat$stdInfo[2,] + stdMat$stdInfo[1,]
+}
+
+ColourByModalDistance <- function(stdMat,ciPalette,default="black"){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to ColourByModalDistance with a non-StandardizedMatrix object")
+    }
+    if(length(stdMat$modalDist) == 0){
+        stop("Attempt to ColourByModalDistance with improperly initialized StandardizedMatrix")
+    }
+    pointCol = rep("black",stdMat$n)
+    ciPalette <- ciPalette[order(as.numeric(names(ciPalette)))]
+    q = as.numeric(names(ciPalette))/100
+    colIdx <- rowSums(sapply(quantile(stdMat$modalDist,q),"<",stdMat$modalDist))
+    pointCol[colIdx > 0] <- ciPalette[colIdx]
     pointCol
 }
 
-ColourByCredibility <- function(stdMat,mode,ciPalette, nPoints = 100){
-    n <- nrow(stdMat$mat)
-    pointCol = rep("grey",n)
-    modalDist <- getScaledModalDist(stdMat,mode)
-    bw <- mean(stdMat$densInfo[2,])
-    #Process densities in order fom close to the mode to far
-    densOrder <- order(modalDist)
-    #Take a sample of all the densities
-    sampleIdx <- as.integer(seq(1,n,l=nPoints))
-    densitySample <- parApply(CL,stdMat$mat[densOrder[sampleIdx],],1,mvDensity,mat=stdMat$mat,bw=bw)
-    #linearly interpolate densities between pairs of points
-    density <- densitySample[1]
-    for(i in 2:nPoints){
-        slope <- (densitySample[i] - densitySample[i-1]) / (sampleIdx[i] - sampleIdx[i-1])
-        density <- c(density,1:(diff(sampleIdx[(i-1):i]) * slope + densitySample[i-1]))
+estimateCredibilityRadii <- function(stdMat,cutoffs = c(0.5,0.9,0.95,0.99)){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to EstimateCredibilityRadii with a non-StandardizedMatrix object")
     }
-    #Calculate cumulative densities and colour the points
-    density <- density / sum(density)
-    cumDensity <- cumsum(density)
-    for(q in c(0.99,0.95,0.90)){
-        pointCol[densOrder[cumDensity <= q]] = ciPalette[as.character(q*100)]
+    if(length(stdMat$modalDist) == 0 || length(stdMat$density) == 0){
+        stop("Attempt to EstimateCredibilityRadii with improperly initialized StandardizedMatrix")
     }
-    #return points back to the original order
-    pointCol[match(1:n,densOrder)]
+    distOrder <- order(stdMat$modalDist)
+    cumProp <- cumsum(stdMat$density[distOrder]) / sum(stdMat$density)
+    idx <- distOrder[sapply(cutoffs,function(x){min(which(cumProp > x))})]
+    stdMat$credRadii <- setNames(c(0,stdMat$modalDist[idx]),c(0,cutoffs*100))
+    stdMat
 }
 
-#stop("Here")
+
+ColourByCredibility <- function(stdMat,ciPalette,defaultCol="black"){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to ColourByCredibility  with a non-StandardizedMatrix object")
+    }
+    if(length(stdMat$credRadii) == 0){
+        stop("Attempt to ColourByCredibility with improperly initialized StandardizedMatrix")
+    }
+    #Calculate cumulative densities and colour the points
+    pointCol = rep("black",stdMat$n)
+    ciPalette <- ciPalette[order(as.numeric(names(ciPalette)))]
+    colIdx <- rowSums(sapply(stdMat$credRadii[names(ciPalette)],"<",stdMat$modalDist))
+    pointCol[colIdx > 0] <- ciPalette[colIdx]
+    pointCol
+}
+
+
+### PLOTTING FUNCTIONS
+
+vioplotWPoints <- function(data,pointCol=NULL,mode=NULL,order=1:(data),...){
+    vioplot(data,...,side="left",plotCentre="line")
+    if(is.null(pointCol)){
+        pointCol = rep("black",nrow(data))
+    }
+    if(is.null(ncol(data))){ #input is a vector
+        dJit <- 1.05 + densityJitter(data,0,0.4)
+        points(dJit,data,col=pointCol,pch=19)
+        if(!is.null(mode)){
+            segments(1,mode,1.5,mode,col="black",lwd=2)
+        }
+        return(NULL)
+    }
+    dJit <- lapply(data,densityJitter,b=0.4)
+    dJit <- mapply("+",dJit,1:ncol(data)+0.05,SIMPLIFY=F)
+    mapply(function(x,y){points(x,y,col=pointCol,pch=19)},dJit,data)
+    if(!is.null(mode)){
+        segments(1:length(data),mode,1:length(data)+ 0.5,mode,col="black",lwd=2)
+    }
+
+    return(NULL)
+}
+
+
+
+#by default no axis are shown
+#axis can be a vector containing the values 1:4, an axis which be shown on each side
+#present
+scatterPlotWiCred <- function(stdMat,axes=NULL,col=rep("black",stdMat$n),...){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to scatterPlotWiCred with a non-StandardizedMatrix object")
+    }
+    if(length(stdMat$modalDist) == 0 || length(stdMat$credRadii) == 0){
+        stop("Attempt to scatterPlotWiCred before estimating the mode or estimating credibility")
+    }
+    if(stdMat$m > 2){
+        stop("Attempt to build a scatterplot for a Standardized Matrix which hasn't been subset to two columns")
+    }
+    mat <- stdMat$mat |> sweep(2,stdMat$stdInfo[2,],"*") |> sweep(2,stdMat$stdInfo[1,],"+") 
+    order <- order(stdMat$modalDist,decreasing=T)
+
+    mat <- mat[order,]
+    col <- col[(1:stdMat$n -1) %% length(col) +1]
+    col <- col[order]
+    plot(mat,ann="F",xaxt="n",yaxt="n",pch=20,col=col,...)
+    garbage <- lapply(axes,axis)
+}
+
+specialHist <- function(x,horiz=F,...){
+    obj <- hist(x,plot=F)
+    if(length(obj$density) == 1){
+        val <- x[1]
+        plot(val,val,type="n",...)
+        if(horiz){
+            abline(h=val)
+        } else {
+            abline(v=val)
+        }
+        return(invisible())
+    }
+    if(horiz){
+        w <- diff(obj$breaks)[1] 
+        args <- list(...)
+        if(hasArg("xlim")){
+            args$xlim <- rev(args$xlim)
+        } else {
+            args$xlim <- rev(range(obj$density))
+        }
+        args$x=range(obj$density)
+        args$y=range(obj$mids)+c(-w/2,w/2)
+        args$type="n"
+        do.call(plot,args)
+        col <- "gray"
+        if(hasArg("col")){
+            col <- args$col
+        }
+        rect(0,obj$mids -w/2,obj$density,obj$mids +w/2,col=col)
+        #obj <- barplot(height=rev(-obj$density),horiz=T,
+        #               width=diff(obj$breaks)[1],
+        #               space=c(min(obj$mids)-0.25,rep(0,length(obj$density)-1)),...)
+    } else {
+        obj <- hist(x,...)
+    }
+    invisible(obj)
+}
+
+scatterPlotMatrix <- function(stdMat,...){
+    pointCol <- ColourByCredibility(StdMat,CIPalette)
+    oldPar <- par()
+    par(mfrow = c(stdMat$m,stdMat$m),mar=c(0.5,0.5,0.1,0.1),oma=c(4.1,4.1,2.1,0.1),las=2,xpd=T)
+        #,cex=1.3)
+    plotW <- (dev.size()[2] - sum(par()$omi[c(2,4)]))/stdMat$m -sum(par()$mai[c(2,4)])
+    plotH <- (dev.size()[1] - sum(par()$omi[c(1,3)]))/stdMat$m -sum(par()$mai[c(1,3)])
+    mat <- stdMat$mat |> sweep(2,stdMat$stdInfo[2,],"*") |> sweep(2,stdMat$stdInfo[1,],"+") 
+    limits <- sweep(stdMat$mat,2,stdMat$stdInfo[2,],"*") |> sweep(2,stdMat$stdInfo[1,],"+") |>
+              apply(2,pretty,min.n=3) |> sapply(range)
+    mode <- stdMat$mode * stdMat$stdInfo[2,] + stdMat$stdInfo[1,]
+    for(row in 1:stdMat$m){
+        for(col in 0:(stdMat$m-1)){
+            if(row == col) {
+                specialHist(mat[,row],ann=F,axes=F,xlim=limits[,row])
+                if(row == 1){
+                    pos <- (plotW + plotW/2 + 2*par()$mai[2] + par()$mai[4]) / (plotW + sum(par()$mai[c(2,4)])) / stdMat$m
+                    mtext(stdMat$names[1L],side=3,at=pos,outer=T,cex=par()$cex,las=1,adj=0.5)
+                }
+                next
+            }
+            if(col == 0){
+                if(row==1){
+                    plot.new()
+                    next
+                }
+                specialHist(mat[,row],ann=F,axes=F,ylim=limits[,row],horiz=T)
+                axis(side=2)
+                irow <- stdMat$m - row + 1
+                pos <- (plotH *(irow-1 + 1/2) + irow*par()$mai[2] + (irow-1)*par()$mai[4]) /
+                        (plotH + sum(par()$mai[c(1,3)])) / stdMat$m
+                mtext(stdMat$names[row],side=2,at=pos,outer=T,cex=par()$cex,adj=0.5,las=3,line=3)
+                next
+            }
+            if(row == 1 & col==stdMat$m-1){
+                plot.new()
+                text(0.5,0.9,"Credibility")
+                legend("center",legend=paste("<",c(names(CIPalette)[-1],100),"%"),fill=CIPalette,bty="n",cex=0.66)
+                next
+            }
+            if(col == row + 1)
+            {
+                plot.new()
+                text(0.5,0.1,stdMat$names[col])
+                next;
+            }
+            if(col > row){
+                plot.new()
+                next
+            }
+            axes <- (1:2)[c(row==stdMat$m,col==-1)]
+            scatterPlotWiCred(subsetStdMat(stdMat,stdMat$names[c(col,row)]),axes,
+                              col=pointCol,xlim=limits[,col],ylim=limits[,row])
+            points(mode[col],mode[row],pch=19)
+        }
+    }
+    par(mfrow=oldPar$mfrow,mar=oldPar$mar,oma=oldPar$oma,las=oldPar$las,xpd=oldPar$xpd,cex=oldPar$cex)
+}
 
 ######## MAIN ##############
 
-garbage <- clusterExport(CL,"mvDensity")
-garbage <- clusterEvalQ(CL,library(mvtnorm))
+
+#stop("Here")
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
 df <- df[-1,]
@@ -351,7 +552,8 @@ ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)
 SwapIdx <- parseLog(logFile)
 #lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
 
-CIPalette = setNames(c("#FFFD98","#B3D2B2","#7A9CC6"),c("99","95","90"))
+
+
 
 
 pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
@@ -360,31 +562,18 @@ pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 #burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
 burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
-message("Calculating Multivariate Mode ...")
-standardizedMatrix <- getStandardizedMatrix(df[RowstoKeep,col.names[-c(1,which(isFixed)+1)]])
-multiVarMode <- mvMode(standardizedMatrix)
-if(sum(isFixed)){ #Need to add back info for fixed parameters
-    bw <- mean(standardizedMatrix$densInfo[2,])
-    for(cn in names(isFixed)[isFixed]){
-        mu <- df[1,cn]
-        multiVarMode[cn] = mu
-        cNames <- c(colnames(standardizedMatrix$stdInfo),cn)
-        standardizedMatrix$stdInfo <- cbind(standardizedMatrix$stdInfo,c(mu,1))
-        colnames(standardizedMatrix$stdInfo) <- cNames
-        standardizedMatrix$mat <- cbind(standardizedMatrix$mat,cn=rep(0,nrow(standardizedMatrix$mat)))
-        colnames(standardizedMatrix$mat) <- cNames
-        standardizedMatrix$densInfo <- cbind(standardizedMatrix$densInfo,cn=c(mu,bw))
-        colnames(standardizedMatrix$densInfo) <- cNames
-    }
-    multiVarMode <- multiVarMode[col.names[-1]]
-    standardizedMatrix$stdInfo <- standardizedMatrix$stdInfo[,col.names[-1]]
-    standardizedMatrix$mat <- standardizedMatrix$mat[,col.names[-1]]
-    standardizedMatrix$densInfo <- standardizedMatrix$densInfo[,col.names[-1]]
-    multiVarMode = unlist(multiVarMode)
-}
-#pointCol <- ColourByCredibility(standardizedMatrix,multiVarMode,CIPalette)
-pointCol <- ColourByModalDistance(standardizedMatrix,multiVarMode,CIPalette)
-pointCol = NULL
+
+message("Calculating Multivariate Stats ...")
+StdMat <- getStandardizedMatrix(df[RowstoKeep,col.names[-1][!isFixed]])
+StdMat <- getDensityEst(StdMat)
+StdMat <- estimateMvMode(StdMat)
+StdMat <- estimateCredibilityRadii(StdMat)
+StdMat <- addFixedNames(StdMat,isFixed,unlist(df[1,names(isFixed)]))
+
+pointCol <- ColourByCredibility(StdMat,CIPalette)
+pointOrder <- order(StdMat$modalDist,decreasing=T)
+#pointCol <- ColourByModalDistance(StdMat,CIPalette)
+#pointCol = NULL
 
 
 message("Plotting ...")
@@ -409,19 +598,17 @@ for(cn in col.names){
 }
 layout(matrix(1,ncol=1))
 par(mar = mar)
-garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep,cn],names=cn,pointCol,multiVarMode[cn])});
+garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep[pointOrder],cn],names=cn,pointCol[pointOrder],getRescaledMode(StdMat)[cn])});
 
+scatterPlotMatrix(StdMat);
 garbage <- dev.off()
 
-
 message("Outputting eval-prior ...")
-#Mode Estimation
-
 lines <- paste0(">",modelName)
 for(cn in col.names[-1]){
     mode <- df[1,cn];
     if(!isFixed[cn]){
-        mode <- round(multiVarMode[cn],7)
+        mode <- round(getRescaledMode(StdMat)[cn],7)
     }
     lines <- c(lines,paste0(cn,"\tFixed\tmu:",mode))
 }
@@ -433,7 +620,5 @@ lines <- c(lines,sort(unlist(initLines)))
 fileConn<-file(evalFile)
 writeLines(lines,fileConn)
 close(fileConn)
-
-stopCluster(CL)
 
 message("Done")
