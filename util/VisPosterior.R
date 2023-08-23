@@ -564,10 +564,19 @@ scatterPlotMatrix <- function(stdMat,...){
                 mtext(stdMat$names[row],side=2,at=pos,outer=T,cex=par()$cex,adj=0.5,las=3,line=3)
                 next
             }
+            if(row == 1 & col==stdMat$m-2){
+                plot.new()
+#                text(0.5,0.9,"Credibility")
+                legend("topright",legend=paste("<",names(CIPalette)[2:3],"%"),fill=CIPalette[1:2],bty="n",cex=par()$cex*3/2)
+                pos <- (plotW * (stdMat$m-1) + (stdMat$m-0.5)*(par()$mai[2] + par()$mai[4])) /
+                        (plotW + sum(par()$mai[c(1,3)])) / stdMat$m
+                mtext("Credibility",side=3,at=pos,outer=T,cex=par()$cex*3/2,adj=0.5,las=1,line=0)
+                next
+            }
             if(row == 1 & col==stdMat$m-1){
                 plot.new()
-                text(0.5,0.9,"Credibility")
-                legend("center",legend=paste("<",c(names(CIPalette)[-1],100),"%"),fill=CIPalette,bty="n",cex=0.66)
+#                text(0.5,0.9,"Credibility")
+                legend("topleft",legend=paste("<",names(CIPalette)[4:5],"%"),fill=CIPalette[3:4],bty="n",cex=par()$cex*3/2)
                 next
             }
             if(col == row + 1)
@@ -592,7 +601,7 @@ scatterPlotMatrix <- function(stdMat,...){
 ######## MAIN ##############
 
 
-#stop("Here")
+stop("Here")
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
 df <- df[-1,]
