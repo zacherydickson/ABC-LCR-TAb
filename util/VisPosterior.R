@@ -1,7 +1,7 @@
 args <- commandArgs(trailingOnly = T)
 
 if(length(args) < 1){
-    stop("Usage: Vis....R inFile.res (parses inFile.log also creates inFile.pdf and inFile.eval")
+    stop("Usage: Vis....R inFile.res [alpha = 0.05] (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
@@ -9,10 +9,14 @@ resFile <- args[1]
 #if(is.na(threads)){
 #    threads <- 1
 #}
+CIalpha <- as.numeric(args[2])
+if(is.na(CIalpha)){
+    CIalpha=0.05
+}
 logFile <- sub("res$","log",resFile)
 pdfFile <- sub("res$","pdf",resFile)
 evalFile <- sub("res$","eval",resFile)
-#burnin <- as.numeric(args[2])
+ciFile <- sub("res$","ci",resFile)
 
 if(any(resFile == c(logFile,pdfFile,evalFile))){
     stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
@@ -198,19 +202,24 @@ optimizeMVMode <- function(point,val,mat,bw,tolProp=10^-4,gssTolProp=10^-6,jitFa
     tol <- sqrt(tolProp^2*length(point))
     repeat {
         gradient <-  gradientEst(point,val,mat=mat,bw=bw)
-        if(sqrt(sum(gradient^2)) < tol){
+        gradMag <- sqrt(sum(gradient^2))
+        if(gradMag < tol){
             break
         }
         r <- findUpperMult(point,val,jitSize,gradient,calculateMVDensity,data=mat,bw=bw) 
         if(r <= 1){
             break
         }
-        res <- generalizedGoldenSearch(1,r,function(mult,...){p <- point + mult*jitSize*gradient; calculateMVDensity(point,...)},data=mat,bw=bw)
+        res <- generalizedGoldenSearch(1,r,function(mult,...){p <- point + mult*jitSize*gradient; calculateMVDensity(p,...)},data=mat,bw=bw)
         if(res[2] < val){
             break
         }
+        inc <- res[2] - val
         val <- res[2]
         point <- point + res[1]*jitSize*gradient
+        if(inc < tolProp){
+            break
+        }
     }
     list(point=point,val=val)
 }
@@ -367,6 +376,76 @@ ColourByCredibility <- function(stdMat,ciPalette,defaultCol="black"){
     pointCol
 }
 
+euclidianDist <- function(mat,x){
+    mat |> sweep(2,x,"-") |> (`^`)(2) |> rowSums() |> sqrt()
+}
+
+#Assume the point most extreme in the CR for one dim is near the edge of CR
+#Assume the nearest point outside the CR, with a more extreme dim value is still close
+#Linearaly interpolate a dim value at the CR limit given a line
+findCIExtremePoint <- function(dim,mat, nmat, cpI, cpO, alpha = 0.05, maximum = T){
+    which.ext = which.max
+    compFunc = (`>`)
+    if(!maximum){
+        which.ext <- which.min
+        compFunc <- (`<`)
+    }
+    innerIdx <- which.ext(mat[,dim])
+    point <- mat[innerIdx,]
+    extIdx <- which(compFunc(nmat[,dim],point[dim]))
+    if(length(extIdx) == 0){
+        return(point)
+    }
+    nmat <- nmat[extIdx,,drop=FALSE]
+    idx <- nmat |> euclidianDist(point) |> which.min()
+    outerIdx <- extIdx[idx]
+    weight <- (cpO[outerIdx] - 1 + alpha) / (cpO[outerIdx] - cpI[innerIdx])
+    limitPoint <- point
+    limitPoint[dim] <- nmat[idx,dim,drop=FALSE] * (1-weight) + point[dim] * weight
+    limitPoint
+}
+
+getRescaledCI <- function(stdMat,alpha=0.05){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to getRescaledCI from a non-StandardizedMatrix object")
+    }
+    if(length(stdMat$modalDist) == 0 || length(stdMat$density) == 0){
+        stop("Attempt to getRescaledCI from improperly initialized StandardizedMatrix")
+    }
+    if(alpha > 0){
+        distOrder <- order(stdMat$modalDist)
+        cumProp <- cumsum(stdMat$density[distOrder]) / sum(stdMat$density)
+        #Identitify the first point outside of the credibility region
+        idx <- min(which(cumProp >=  1 - alpha))
+        #Subset the matrix to be only points inside the credibility region
+        if(idx == 1){ #The closest point to the mode is outside of the credibility region
+            mat <- rbind(stdMat$mode,stdMat$mode)
+            nmat <- stdMat$mat
+            cpI <- c(0,0)
+            cpO <- cumProp
+        } else {
+            inReg <- 1:(idx-1)
+            mat <- stdMat$mat[distOrder[inReg],,drop=F]
+            nmat <- stdMat$mat[distOrder[-inReg],,drop=F]
+            cpI <- cumProp[inReg]
+            cpO <- cumProp[-inReg]
+        }
+        #For each dimension, find the point at the extremes of the credibility region
+        #Then find the point outside the region, and which has a more extreme value for that dim
+        #Add a new point to the credibility interval which has the same non-dim values as
+        # the original, but has dim value weighted by distance beyond the credibility
+        # region
+        mat <- mapply(findCIExtremePoint,
+                      rep(1:stdMat$m,each=2),rep(c(T,F),stdMat$m),
+                      MoreArgs=list(mat=mat,nmat =nmat,cpI=cpI,cpO=cpO,alpha=alpha)) |>
+            t() |> rbind(mat)
+    } else {
+        mat <- stdMat$mat
+    }
+    mat |> apply(2,range) |>
+        sweep(2,stdMat$stdInfo[2,],"*") |> sweep(2,stdMat$stdInfo[1,],"+")
+}
+
 
 ### PLOTTING FUNCTIONS
 
@@ -392,8 +471,6 @@ vioplotWPoints <- function(data,pointCol=NULL,mode=NULL,order=1:(data),...){
 
     return(NULL)
 }
-
-
 
 #by default no axis are shown
 #axis can be a vector containing the values 1:4, an axis which be shown on each side
@@ -447,9 +524,6 @@ specialHist <- function(x,horiz=F,...){
             col <- args$col
         }
         rect(0,obj$mids -w/2,obj$density,obj$mids +w/2,col=col)
-        #obj <- barplot(height=rev(-obj$density),horiz=T,
-        #               width=diff(obj$breaks)[1],
-        #               space=c(min(obj$mids)-0.25,rep(0,length(obj$density)-1)),...)
     } else {
         obj <- hist(x,...)
     }
@@ -531,17 +605,6 @@ for (cn in col.names) {
 }
 
 RowstoKeep = seq(1,nrow(df));
-isFixed = setNames(rep(FALSE,length(col.names[-1])),col.names[-1])
-
-#for(cn in col.names[-1]){
-#    tmp <- rle(df[,cn])
-#    if(length(tmp$values) == 1){
-#        isFixed[cn]=TRUE
-#    }
-#    tmp <- lapply(1:length(tmp$values),function(i){c(tmp$values[i],rep(NA,tmp$lengths[i]-1))})
-#    df[,cn] = unlist(tmp)
-#}
-
 isFixed = sapply(names(isFixed),function(cn){length(unique(df[,cn])) == 1})
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
@@ -550,31 +613,25 @@ ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)
 #message(paste0(ymin,collapse=" "))
 
 SwapIdx <- parseLog(logFile)
-#lowessFactor <- kneedle(abs(sapply(1:(2*nrow(df)/3),function(l){tmp <- windowedSumDeviation(df$nLogP,l); sum(tmp)*length(tmp)})))/nrow(df)
-
-
-
-
 
 pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
 
 
-#burnin = kneedle(df$nLogP,burnin,bPlot=TRUE,f=lowessFactor)
 burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 
 message("Calculating Multivariate Stats ...")
 StdMat <- getStandardizedMatrix(df[RowstoKeep,col.names[-1][!isFixed]])
+message("\tSmoothed Density ...")
 StdMat <- getDensityEst(StdMat)
+message("\tMode ...")
 StdMat <- estimateMvMode(StdMat)
+message("\tCredibility ...")
 StdMat <- estimateCredibilityRadii(StdMat)
 StdMat <- addFixedNames(StdMat,isFixed,unlist(df[1,names(isFixed)]))
 
 pointCol <- ColourByCredibility(StdMat,CIPalette)
 pointOrder <- order(StdMat$modalDist,decreasing=T)
-#pointCol <- ColourByModalDistance(StdMat,CIPalette)
-#pointCol = NULL
-
 
 message("Plotting ...")
 SwapIdx = SwapIdx - burnin
@@ -620,5 +677,9 @@ lines <- c(lines,sort(unlist(initLines)))
 fileConn<-file(evalFile)
 writeLines(lines,fileConn)
 close(fileConn)
+
+message("Outputting Credibility intervals ... ")
+ci <- getRescaledCI(StdMat,CIalpha)
+write.table(ci,ciFile,quote=F,sep=",",row.names=F,col.names=T)
 
 message("Done")
