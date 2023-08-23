@@ -605,7 +605,7 @@ for (cn in col.names) {
 }
 
 RowstoKeep = seq(1,nrow(df));
-isFixed = sapply(names(isFixed),function(cn){length(unique(df[,cn])) == 1})
+isFixed = sapply(setNames(nm=col.names[-1]),function(cn){length(unique(df[,cn])) == 1})
 
 OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
 ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
