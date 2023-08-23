@@ -601,7 +601,7 @@ scatterPlotMatrix <- function(stdMat,...){
 ######## MAIN ##############
 
 
-stop("Here")
+#stop("Here")
 
 df <- read.table(resFile,sep="\t",stringsAsFactors=F,header=T,check.names=F)
 df <- df[-1,]
