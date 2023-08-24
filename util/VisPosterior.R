@@ -616,10 +616,22 @@ for (cn in col.names) {
 RowstoKeep = seq(1,nrow(df));
 isFixed = sapply(setNames(nm=col.names[-1]),function(cn){length(unique(df[,cn])) == 1})
 
-OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){round(log10(diff(range(x[!is.na(x)]))),0)})
-ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){y <- median(x[!is.na(x)]); ceiling(log10(abs(y)))*sign(y)})
+truncAway <- function(x,center=0){
+    y <- ifelse(x < center, floor(x), ceiling(x))
+    y[x == center] <- round(center,0)
+    y
+}
+
+signLog <- function(x,base=exp(1)){
+    sign(x) * log(abs(x)+1,base)
+}
+
+OoM = apply(df[,col.names[-1]][,!isFixed],2,function(x){diff(range(truncAway(signLog(x[!is.na(x)]))))})
+ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){range(truncAway(signLog(x[!is.na(x)])))[1]})
 #message(paste0(OoM,collapse=" "))
 #message(paste0(ymin,collapse=" "))
+#
+#stop("There")
 
 SwapIdx <- parseLog(logFile)
 
