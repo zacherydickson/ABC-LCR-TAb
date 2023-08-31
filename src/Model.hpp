@@ -167,10 +167,7 @@ namespace model {
 
         //Methods
         public:
-            virtual void determineEvaluationBlocks();
             void evaluate(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim);
-            double evaluateBlock(const EvaluationBlock & evalBlock, const Tree & tree, const StateMap & obs,std::mt19937 & gen, size_t nSim) const;
-            double evaluateBlocks(int, const std::vector<int> & vBlockIdxs, const Tree & tree, const StateMap & obs,size_t seed, size_t nSim) const;
             size_t getNEvalBlocks() const {return this->vEvalBlocks.size();}
             double getNLogP() const;
             double getMinEval() const;
@@ -181,7 +178,11 @@ namespace model {
             std::unique_ptr<CModel> proposeJump(const ProposalScaleMap & scaleMap, std::mt19937 & gen) const;
             void setToStr(const std::string & modelStr);
         protected:
+            virtual void determineEvaluationBlocks();
+            double evaluateBlock(const EvaluationBlock & evalBlock, const Tree & tree, const StateMap & obs,std::mt19937 & gen, size_t nSim) const;
+            double evaluateBlocks(int, const std::vector<int> & vBlockIdxs, const Tree & tree, const StateMap & obs,size_t seed, size_t nSim) const;
             void partitionEvalBlocks(size_t nThreads);
+            void validateParameters();
         //Virtual Methods
         public:
             virtual const std::string & getName() const {return modelName;}

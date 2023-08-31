@@ -46,6 +46,7 @@ namespace model{
                 break;
             }
         }
+        this->validateParameters();
         if(initEvalBlocks){
             this->vEvalBlocks = *initEvalBlocks;
         }
@@ -151,14 +152,7 @@ namespace model{
     
     //CModel -- concrete, public
 
-    std::unique_ptr<CModel> CModel::proposeJump(const ProposalScaleMap & scaleMap, std::mt19937 & gen) const {
-        //Copy the current Parameter Set
-        ParamMap newParams = this->parameters;
-        //Update the values of the Copy
-        double logHastingsRatio = CModel::ProposeParameterSet(newParams,scaleMap,gen);
-        //Return the appropriate Object
-        return this->constructAdjacentModel(newParams,logHastingsRatio);
-    }
+    
 
     void CModel::evaluate(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim){
         using namespace std::placeholders;
@@ -203,6 +197,33 @@ namespace model{
             throw std::logic_error("Attempt to get minimum log Probability of unevaluated model");
         }
         return this->minEvalValue;
+    }
+
+    std::unique_ptr<CModel> CModel::proposeJump(const ProposalScaleMap & scaleMap, std::mt19937 & gen) const {
+        //Copy the current Parameter Set
+        ParamMap newParams = this->parameters;
+        //Update the values of the Copy
+        double logHastingsRatio = CModel::ProposeParameterSet(newParams,scaleMap,gen);
+        //Return the appropriate Object
+        return this->constructAdjacentModel(newParams,logHastingsRatio);
+    }
+
+    std::ostream& CModel::output(std::ostream& os) const{
+        for(int i = 0; i < this->vInitStates.size(); i++){
+            os << "[";
+            for(int protIdx : vInitStates[i].vProtIdxs){
+                os << protIdx << ";";
+            }
+            os << "A:" << vInitStates[i].abundance.getMode() << ",L:"
+                      << vInitStates[i].length.getMode() << "]\t";
+        }
+        os << "logPriorDensity: " << this->logJointPriorDensity;
+        os << "\tlogHastingsRatio: " << this->logHastingsRatio;
+        os << "\tnlogP: " << this->nlogJointProbability;
+        for(const std::string & name : this->getParamNames()){
+            os << "\t" << name << ": " << this->parameters.at(name).value;
+        }
+        return os;
     }
 
     void CModel::setToStr(const std::string & modelStr){
@@ -376,24 +397,6 @@ namespace model{
         }
         logger::Log("Root Node initialized for block of %zd proteins",logger::DEBUG,nProt);
         return nProt;
-    }
-
-    std::ostream& CModel::output(std::ostream& os) const{
-        for(int i = 0; i < this->vInitStates.size(); i++){
-            os << "[";
-            for(int protIdx : vInitStates[i].vProtIdxs){
-                os << protIdx << ";";
-            }
-            os << "A:" << vInitStates[i].abundance.getMode() << ",L:"
-                      << vInitStates[i].length.getMode() << "]\t";
-        }
-        os << "logPriorDensity: " << this->logJointPriorDensity;
-        os << "\tlogHastingsRatio: " << this->logHastingsRatio;
-        os << "\tnlogP: " << this->nlogJointProbability;
-        for(const std::string & name : this->getParamNames()){
-            os << "\t" << name << ": " << this->parameters.at(name).value;
-        }
-        return os;
     }
 
     //CModel -- Virtual, public
