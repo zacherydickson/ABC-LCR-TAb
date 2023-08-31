@@ -19,19 +19,19 @@ namespace model {
     ModelType str2ModelType(std::string str);
 
     struct SParameterSpecification{
+        std::string dependency;
         double value;
         double lowerBound;
         double upperBound;
-        std::vector<std::string> vDependents;
         SParameterSpecification & operator=(const SParameterSpecification & rhs){
             this->value = rhs.value;
             this->lowerBound = rhs.lowerBound;
             this->upperBound = rhs.upperBound;
-            this->vDependents = rhs.vDependents;
+            this->dependency = rhs.dependency;
             return *this;
         }
         bool isFixed(double at = std::numeric_limits<double>::quiet_NaN()) const {
-            if(lowerBound != upperBound){
+            if(lowerBound != upperBound && dependency.empty()){
                 return false;
             }
             if(!std::isnan(at) && value != at){

@@ -14,9 +14,11 @@ namespace prior {
     struct SParameterPriorSpecification {
         stats::DistributionType type;
         stats::ParamMap hyperparameters;
+        std::string dependency;
         SParameterPriorSpecification & operator=(const SParameterPriorSpecification & rhs){
             this->type = rhs.type;
             this->hyperparameters = rhs.hyperparameters;
+            this->dependency = rhs.dependency;
             return *this;
         }
     };
@@ -33,6 +35,10 @@ namespace prior {
             model::vInitialModelState vInitStates;
             model::ModelType modelType;
             ParameterPriorMap mParamPriors;
+        //Static Methods
+        protected:
+            static double CalculatePriorDensity(const std::string & name, double value, stats::DistributionType type, const stats::ParamMap & hyperparameters);
+            static CDiscreteFiniteRandomVariable ConstructDFRV(SParameterPriorSpecification paramPrior);
         //Methods
         public:
             double calculateJointPriorDensity(const model::ParamMap & parameters) const;
@@ -42,11 +48,10 @@ namespace prior {
             size_t getNParamPriors() const {return mParamPriors.size();}
             std::unique_ptr<model::CModel> GenerateModel(std::mt19937 & gen) const;
             std::ostream& output(std::ostream & os) const;
-        //Static Methods
         protected:
-            double calculatePriorDensity(const std::string & name, double value, stats::DistributionType type, const stats::ParamMap & hyperparameters) const;
-            void CollapseDuplicateInitialStates();
-            CDiscreteFiniteRandomVariable constructDFRV(SParameterPriorSpecification paramPrior);
+            void collapseDuplicateInitialStates();
+            void validateParamPriors() const;
+        
     };
 
     inline std::ostream& operator<<(std::ostream& os, const CPrior & obj){return obj.output(os);}

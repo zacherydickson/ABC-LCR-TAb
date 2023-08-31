@@ -96,20 +96,12 @@ namespace model{
         for(auto & pair : scaleMap){
             SParameterSpecification & param = parameters[pair.first];
             logPropRatio += CModel::SampleProposalDistribution(param,pair.second,gen);
-            //Recursively find all parameters which depend on this parameter
-            std::queue<std::string> qDependencies({pair.first});
-            std::vector<std::string> vAllDependents;
-            while(!qDependencies.empty()){
-                std::string curParam = qDependencies.front();
-                qDependencies.pop();
-                for(const std::string & dependent : parameters[curParam].vDependents){
-                    vAllDependents.push_back(dependent);
-                    qDependencies.push(dependent);
+            //Scan through other parameters to see if any depend of the changed parameter and
+            //update them as necessary
+            for(auto & dependentPair : parameters){
+                if(dependentPair.second.dependency == pair.first){
+                    dependentPair.second.value = param.value;
                 }
-            }
-            //Set all dependents to the parameters value
-            for(const std::string & dependent : vAllDependents){
-                parameters[dependent].value = parameters[pair.first].value;
             }
         }
         return logPropRatio;
@@ -403,30 +395,40 @@ namespace model{
 
     void CModel::validateParameters() const{
         for(const auto & pair : this->parameters){
-            //Recursively find all parameters which depend on this parameter, and in the
-            //process identify any circular dependencies
-            std::queue<std::string> qDependencies({pair.first});
-            std::set<std::string> sDependencies({pair.first});
-            while(!qDependencies.empty()){
-                std::string curParam = qDependencies.front();
-                qDependencies.pop();
-                for(const std::string & dependent : parameters.at(curParam).vDependents){
-                    if(sDependencies.count(dependent) > 0){
-                        logger::Log("Identified circular/branching parameter dependencies for %s\n",
-                                logger::ERROR,pair.first.c_str());
-                        throw std::invalid_argument("Attempt to construct CModel with circularly dependent or branching parameters");
-                    }
-                    if(parameters.count(dependent) == 0){
-                        logger::Log("Identified unknown dependent (%s) for parameter %s\n",
-                                logger::ERROR,dependent.c_str(),pair.first.c_str());
-                    }
-                    sDependencies.insert(dependent);
-                    qDependencies.push(dependent);
+            std::string curParam = pair.first;
+            std::set<std::string> sDependents;
+            //If it has a dependency make sure it isn't circular or chained
+            while(!parameters.at(curParam).dependency.empty()){
+                sDependents.insert(curParam);
+                //Follow the dependency line until termination, or until encountering a
+                //previously encountered parameter
+                curParam = parameters.at(curParam).dependency;
+                if(parameters.count(curParam) == 0){
+                    logger::Log("Identified unknown dependency (%s) for parameter %s",
+                            logger::ERROR,curParam.c_str(),pair.first.c_str());
+                    throw std::invalid_argument("Encountered unknown parameter dependency");
+                }
+                if(sDependents.count(curParam) > 0){
+                    logger::Log("Identified circular dependency for parameter %s",
+                            logger::ERROR,pair.first.c_str());
+                    throw std::invalid_argument("Encountered circular parameter dependency");
+                }
+                if(!parameters.at(curParam).dependency.empty()){
+                    logger::Log("Identified chained dependency for parameter %s",
+                            logger::ERROR,pair.first.c_str());
+                    throw std::invalid_argument("Chained dependencies are currently not allowed");
                 }
             }
             if(pair.second.lowerBound > pair.second.upperBound){
-                logger::Log("Identified inverted domain bounds for %s\n", logger::ERROR,pair.first.c_str());
+                logger::Log("Identified inverted domain bounds for %s",
+                        logger::ERROR,pair.first.c_str());
                 throw std::invalid_argument("Proposal Distribution Bounds are inverted");
+            }
+            if(pair.second.value < pair.second.lowerBound ||
+                    pair.second.value > pair.second.upperBound){
+                logger::Log("Parameter value (%0.4f) is outside of prior domain for %s",
+                        logger::ERROR,pair.second.value,pair.first.c_str());
+                throw std::invalid_argument("Parameter value outside of Domain");
             }
         }
     }
