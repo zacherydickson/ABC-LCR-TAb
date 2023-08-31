@@ -8,6 +8,7 @@
 #include "Logging.h"
 #include <numeric>
 #include "Model.hpp"
+#include <queue>
 //#include "precalc.h"
 
 namespace model{
@@ -113,6 +114,21 @@ namespace model{
         for(auto & pair : scaleMap){
             SParameterSpecification & param = parameters[pair.first];
             logPropRatio += CModel::SampleProposalDistribution(param,pair.second,gen);
+            //Recursively find all parameters which depend on this parameter
+            std::queue<std::string> qDependencies({pair.first});
+            std::vector<std::string> vAllDependents;
+            while(!qDependencies.empty()){
+                std::string curParam = qDependencies.front();
+                qDependencies.pop();
+                for(const std::string & dependent : parameters[curParam].vDependents){
+                    vAllDependents.push_back(dependent);
+                    qDependencies.push(dependent);
+                }
+            }
+            //Set all dependents to the parameters value
+            for(const std::string & dependent : vAllDependents){
+                parameters[dependent].value = parameters[pair.first].value;
+            }
         }
         return logPropRatio;
     }

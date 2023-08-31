@@ -22,10 +22,12 @@ namespace model {
         double value;
         double lowerBound;
         double upperBound;
+        std::vector<std::string> vDependents;
         SParameterSpecification & operator=(const SParameterSpecification & rhs){
             this->value = rhs.value;
             this->lowerBound = rhs.lowerBound;
             this->upperBound = rhs.upperBound;
+            this->vDependents = rhs.vDependents;
             return *this;
         }
         bool isFixed(double at = std::numeric_limits<double>::quiet_NaN()) const {
