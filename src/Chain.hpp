@@ -42,7 +42,6 @@ namespace chain {
         protected:
             static size_t AcceptScaleHorizon;
             static size_t AcceptAlphaHorizon;
-            static bool BGradientDescent;
             static std::vector<double> vInitialProposalScales;
             static double InitialSimulationAlpha;
             static double MaximumProposalScaleOoM;
@@ -51,7 +50,6 @@ namespace chain {
             static double TargetAcceptRate;
         //Static Methods
         public:
-            static bool GetGradientDescentState() {return CChain::BGradientDescent;}
             static size_t GetPSHorizon() {return CChain::AcceptScaleHorizon;}
             static const std::vector<double> & GetPSInit() {return CChain::vInitialProposalScales;}
             static double GetPSOoM() {return CChain::MaximumProposalScaleOoM;}
@@ -60,7 +58,6 @@ namespace chain {
             static size_t GetSimVarAlphaHorizon() {return CChain::AcceptAlphaHorizon;}
             static size_t GetSimVarN() {return CChain::SimulationVarianceEstimationN;}
             static size_t GetSimVarReEvalHorizon() {return CChain::SimulationVarianceEstimateHorizon;}
-            static void ToggleGradientDescent() {CChain::BGradientDescent = !CChain::BGradientDescent;}
             static void TunePS(size_t horizon, const std::vector<double> & vInit, double oom, double rate);
             static void TuneSimVar(double alpha, size_t alphaHorizon, size_t n, size_t reEvalHorizon);
         //Methods
