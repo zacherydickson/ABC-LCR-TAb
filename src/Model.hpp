@@ -172,7 +172,6 @@ namespace model {
             double getNLogP() const;
             double getMinEval() const;
             const ParamMap & getParamMap() const {return this->parameters;}
-            virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const;
             bool isFixed() const {return this->bFixed;}
             std::ostream& output(std::ostream&) const;
             std::unique_ptr<CModel> proposeJump(const ProposalScaleMap & scaleMap, std::mt19937 & gen) const;
@@ -181,8 +180,9 @@ namespace model {
             virtual void determineEvaluationBlocks();
             double evaluateBlock(const EvaluationBlock & evalBlock, const Tree & tree, const StateMap & obs,std::mt19937 & gen, size_t nSim) const;
             double evaluateBlocks(int, const std::vector<int> & vBlockIdxs, const Tree & tree, const StateMap & obs,size_t seed, size_t nSim) const;
+            virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const;
             void partitionEvalBlocks(size_t nThreads);
-            void validateParameters();
+            void validateParameters() const ;
         //Virtual Methods
         public:
             virtual const std::string & getName() const {return modelName;}

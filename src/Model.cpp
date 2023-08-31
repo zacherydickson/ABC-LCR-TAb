@@ -9,6 +9,7 @@
 #include <numeric>
 #include "Model.hpp"
 #include <queue>
+#include <set>
 //#include "precalc.h"
 
 namespace model{
@@ -241,6 +242,7 @@ namespace model{
             }
             pair.second.value = value;
         }
+        this->validateParameters();
     }
 
 
@@ -397,6 +399,36 @@ namespace model{
         }
         logger::Log("Root Node initialized for block of %zd proteins",logger::DEBUG,nProt);
         return nProt;
+    }
+
+    void CModel::validateParameters() const{
+        for(const auto & pair : this->parameters){
+            //Recursively find all parameters which depend on this parameter, and in the
+            //process identify any circular dependencies
+            std::queue<std::string> qDependencies({pair.first});
+            std::set<std::string> sDependencies({pair.first});
+            while(!qDependencies.empty()){
+                std::string curParam = qDependencies.front();
+                qDependencies.pop();
+                for(const std::string & dependent : parameters.at(curParam).vDependents){
+                    if(sDependencies.count(dependent) > 0){
+                        logger::Log("Identified circular/branching parameter dependencies for %s\n",
+                                logger::ERROR,pair.first.c_str());
+                        throw std::invalid_argument("Attempt to construct CModel with circularly dependent or branching parameters");
+                    }
+                    if(parameters.count(dependent) == 0){
+                        logger::Log("Identified unknown dependent (%s) for parameter %s\n",
+                                logger::ERROR,dependent.c_str(),pair.first.c_str());
+                    }
+                    sDependencies.insert(dependent);
+                    qDependencies.push(dependent);
+                }
+            }
+            if(pair.second.lowerBound > pair.second.upperBound){
+                logger::Log("Identified inverted domain bounds for %s\n", logger::ERROR,pair.first.c_str());
+                throw std::invalid_argument("Proposal Distribution Bounds are inverted");
+            }
+        }
     }
 
     //CModel -- Virtual, public
