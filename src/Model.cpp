@@ -13,9 +13,6 @@
 namespace model{
 
     //Modifiable Static Variables
-    double CModel::GoldenSearchBoundMultiple = 3;
-    double CModel::GoldenSearchToleranceProportion = 0.001;
-    double CModel::GradientEstimateStepProportion = 0.001;
     double CModel::MaximumRelativeError = 0.10; 
     //Constant Static Variables
     const std::string CModel::modelName = "AbstractModel";
@@ -88,23 +85,6 @@ namespace model{
         CModel::MaximumRelativeError = relError;
     }
 
-    void CModel::TuneGoldenSearch(double mult, double tol){
-        if(mult <= 0){
-            throw std::invalid_argument("Attempt to tune CModel golden search with boundary multiple of zero");
-        }
-        if(tol <= 0){
-            throw std::invalid_argument("Attempt to tune CModel golden search with non-positive tolerance");
-        }
-        CModel::GoldenSearchBoundMultiple = mult;
-        CModel::GoldenSearchToleranceProportion = tol;
-    }
-
-    void CModel::TuneGradientEstimation(double prop){
-        if(prop <= 0){
-            throw std::invalid_argument("Attempt to tune CModel gradient estimation with non-positive step proportion");
-        }
-        CModel::GradientEstimateStepProportion = prop;
-    }
 
     //CModel -- protected
     
@@ -202,120 +182,11 @@ namespace model{
         return this->nlogJointProbability;
     }
 
-    double CModel::getMaxVectorDist(const GradientMap & gradient) const {
-        double maxMultiple = CModel::GoldenSearchBoundMultiple;
-
-        //Determine which parameter is the limiter
-        double intervalLength = std::sqrt(double(this->parameters.size() * pow(maxMultiple,2.0)));
-        for(const auto & pair : this->parameters){
-            //Maximum distance is dist to the bound in the opposite gradient direction
-            //Default assume positive slope so head towards lower bound
-            double dist = pair.second.value - pair.second.lowerBound;
-            if(gradient.at(pair.first) < 0){ // If a negative slope go towards upper bound
-                dist = pair.second.upperBound - pair.second.value;
-            }
-            //If the bound is infinite, and the value is non-zero, set distance to be
-            // a multiple of the current value;
-            if(std::isinf(dist) && std::abs(pair.second.value) > 0){
-                dist = std::abs(pair.second.value) * maxMultiple;
-            } else if(pair.second.value == 0){
-                dist = maxMultiple; //there is no info on what a big step is, just go a few
-            }
-            //The maximum interval
-            double intervalDist = dist / std::abs(gradient.at(pair.first));
-            if(intervalDist < intervalLength){
-                intervalLength = intervalDist;
-            }
-        }
-        return intervalLength;
-    }
-
     double CModel::getMinEval() const{
         if(this->nlogJointProbability < 0){
             throw std::logic_error("Attempt to get minimum log Probability of unevaluated model");
         }
         return this->minEvalValue;
-    }
-
-    
-
-    std::unique_ptr<CModel> CModel::goldenSearch(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const {
-        double phi = 1.618033988749895;
-        //Establish the gradient (Note: A Regularized Gradient with a magnitude of 1 is
-        //used)
-        GradientMap gradient = this->estimateGradient(tree,obs,threadPool,gen,nSim);
-        if(gradient.empty()){ //The overall slope is zero and there is no changing to be done
-            return std::unique_ptr<CModel>(nullptr);
-        }
-        //Calculate the magnitude of the gradient vector
-         
-        double intervalLength = this->getMaxVectorDist(gradient); 
-        //intervalLength is now the maximum distance to travel in the gradient direction
-        
-        //f1 is this object
-        //f3 is the end point
-        //The ratio of f1->f2 / f2->f3 is the golden ratio b/a = φ; a+ b = (f1->f3)
-        //  a + b = c; b/a = φ  -> b = aφ; a + aφ = c; a = c / (1 + φ)
-        //-1.0 is used to indicate an undefined value as both the x value and the y value
-        //are strictly positive
-        std::pair<double,double> aProbePoint[4] = {std::make_pair(0.0,this->getNLogP()), //f1
-            std::make_pair(intervalLength / (1.0 + phi),-1.0), //f2
-            std::make_pair(intervalLength, -1.0) /*f3*/, std::make_pair(-1.0, -1.0)}; //f4
-
-        bool bDone = false;
-        double tolerance = intervalLength * CModel::GoldenSearchToleranceProportion;
-        while(!bDone) {
-            //Define the 4th probe point's x value and mark that it needs to be evaluated
-            aProbePoint[3] = std::make_pair(aProbePoint[0].first + (aProbePoint[2].first - aProbePoint[1].first),-1);
-            //Just to make things cleaner later we'll make sure that the 4th probe point is
-            //always has a higher x than the 2nd probe point;
-            if(aProbePoint[3].first < aProbePoint[1].first){
-                std::swap(aProbePoint[3],aProbePoint[1]);
-            }
-            if(aProbePoint[3].first - aProbePoint[0].first < tolerance){
-                bDone = true;
-            }
-            //Evaluate Models at probe points as necessary
-            for(int i = 0; i < 4; i++){
-                if(aProbePoint[i].second >= 0){
-                    continue;
-                }
-                ParamMap newParam = this->parameters;
-                for(auto & pair : newParam){
-                    pair.second.value -= aProbePoint[i].first * gradient.at(pair.first);
-                    if(pair.second.value < pair.second.lowerBound){
-                        pair.second.value = pair.second.lowerBound;
-                    } else if(pair.second.value > pair.second.upperBound){
-                        pair.second.value = pair.second.upperBound;
-                    }
-                }
-                std::unique_ptr<CModel> pointModel = this->constructAdjacentModel(newParam,0);
-                pointModel->evaluate(tree,obs,threadPool,gen,nSim);
-                aProbePoint[i].second = pointModel->getNLogP();
-            }
-            //If the 4th probe point is less than the second, search the right interval
-            if(aProbePoint[3].second < aProbePoint[1].second){
-                aProbePoint[0] = aProbePoint[1];
-                aProbePoint[1] = aProbePoint[3];
-            } else { //Search the left interval
-                aProbePoint[2] = aProbePoint[3];
-            }
-        } 
-
-        //Construct the parameters at the best Step
-        ParamMap newParam = this->parameters;
-        for(auto & pair : newParam){
-            pair.second.value -= aProbePoint[1].first * gradient.at(pair.first);
-            if(pair.second.value < pair.second.lowerBound){
-                pair.second.value = pair.second.lowerBound;
-            } else if(pair.second.value > pair.second.upperBound){
-                pair.second.value = pair.second.upperBound;
-            }
-        }
-        //We are going to say that the probability of proposing this new model is the same
-        //as the parent model, as that choice was random, but from there it is
-        //deterministic
-        return this->constructAdjacentModel(newParam,this->logHastingsRatio);
     }
 
     void CModel::setToStr(const std::string & modelStr){
@@ -403,63 +274,6 @@ namespace model{
         size_t max = *std::max_element(threadBlockWeight.begin(),threadBlockWeight.end());
         this->evalBlockIdxPartition.vThreadBlocks = vvEvalBlockIdxs;
         logger::Log("Partitioned into %ld threadBlocks with %ld to %ld proteins each",logger::DEBUG+1,nThreads,min, max);
-    }
-
-    GradientMap CModel::estimateGradient(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool, std::mt19937 & gen, size_t nSim) const {
-        double hProp = 0.001; //The step size for gradient estimation; interpret as a proportion of parameter value 
-        GradientMap gradient;
-        double gradientMagnitude = 0;
-        for(const auto & pair : this->parameters){ //For each parameter take small step
-            ParamMap newParams = this->parameters;
-            //With fixed Priors, ww cannot change the value and the slope is zero
-            if(pair.second.lowerBound == pair.second.upperBound){
-                gradient[pair.first] = 0.0;
-                continue;
-            }
-            //To make sure the new value always remains within domain, the step size
-            //the non-zero minimum of 1.0 (adding hProp), the distance to the nearest
-            //domain boundary, the value itself, and the range of the domain
-            //be away from the nearest finite bound, or a proportion of the value if both
-            //bounds are infinite
-            double lowerDist = pair.second.value - pair.second.lowerBound;
-            double upperDist = pair.second.upperBound - pair.second.value;
-            int sign = 1.0;
-            double dist = lowerDist;
-            if(lowerDist > upperDist){
-                sign = -1.0;
-                dist = upperDist;
-            }
-            std::vector<double> vDist = {dist, pair.second.value, pair.second.upperBound - pair.second.lowerBound};
-            double step = 1.0; 
-            for(double d : vDist){
-                if(d > 0.0 & d < step){
-                    step = d;
-                }
-            }
-            //Set the new value for the parameter
-            newParams[pair.first].value = pair.second.value + sign * hProp * step;
-            //Generate the model
-            std::unique_ptr<CModel> stepModel = this->constructAdjacentModel(newParams,0);
-            //Evaluate the model
-            stepModel->evaluate(tree,obs,threadPool,gen,nSim);
-            //Calculate the slope
-            double slope = (stepModel->getNLogP() - this->getNLogP()) / (newParams[pair.first].value - pair.second.value);
-            //Store the slope
-            gradient[pair.first] = slope;
-            gradientMagnitude += std::pow(slope,2.0);
-        }
-        gradientMagnitude = std::sqrt(gradientMagnitude);
-        if(gradientMagnitude == 0){ //If all slopes are zero, then the gradient is zero
-            //Return an empty map to demonstrate this
-            return GradientMap();
-        }
-        //Rescale the gradient vector so the direction remains the same, but each value now
-        //corresponds to the distance traveled in each basis vector for a single step in
-        //the gradient direction
-        for(auto & pair : gradient){
-            pair.second /= gradientMagnitude;
-        }
-        return gradient;
     }
 
     double CModel::evaluateBlock(const EvaluationBlock & evalBlock, const Tree & tree, const StateMap & obs, std::mt19937 & gen, size_t nSim) const{

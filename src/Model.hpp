@@ -149,9 +149,6 @@ namespace model {
         protected:
         //Static Members
         protected:
-            static double GoldenSearchBoundMultiple;
-            static double GoldenSearchToleranceProportion;
-            static double GradientEstimateStepProportion;
             static double MaximumRelativeError;
         private:
             static const std::string modelName;
@@ -160,11 +157,6 @@ namespace model {
         //Static Methods  
         public:
             static void TuneEvaluation(double error);
-            static void TuneGoldenSearch(double mult, double tol);
-            static void TuneGradientEstimation(double prop);
-            static double GetGSMult(){return CModel::GoldenSearchBoundMultiple;}
-            static double GetGSTolProp(){return CModel::GoldenSearchToleranceProportion;}
-            static double GetGEStepProp(){return CModel::GradientEstimateStepProportion;}
             static double GetEvalRelError(){return CModel::MaximumRelativeError;}
         protected:
             double ExtractValueFromModelString(const std::string & modelStr, const std::string  & keyStr, size_t pos);
@@ -174,16 +166,13 @@ namespace model {
         //Methods
         public:
             virtual void determineEvaluationBlocks();
-            GradientMap estimateGradient(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const;
             void evaluate(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim);
             double evaluateBlock(const EvaluationBlock & evalBlock, const Tree & tree, const StateMap & obs,std::mt19937 & gen, size_t nSim) const;
             double evaluateBlocks(int, const std::vector<int> & vBlockIdxs, const Tree & tree, const StateMap & obs,size_t seed, size_t nSim) const;
             size_t getNEvalBlocks() const {return this->vEvalBlocks.size();}
             double getNLogP() const;
-            double getMaxVectorDist(const GradientMap & gradient) const;
             double getMinEval() const;
             const ParamMap & getParamMap() const {return this->parameters;}
-            std::unique_ptr<CModel> goldenSearch(const Tree & tree, const StateMap & obs, ctpl::thread_pool & threadPool,std::mt19937 & gen, size_t nSim) const;
             virtual size_t initializeSimulationRootNode(const EvaluationBlock & evalBlock, SVModelStateNode & rootNode) const;
             bool isFixed() const {return this->bFixed;}
             std::ostream& output(std::ostream&) const;
