@@ -88,7 +88,7 @@ std::string join(const std::vector<std::string> & v, std::string delim = ","/*, 
 
 /*### HELP AND USAGE #########################################################*/
 
-enum optionIndex{UNKNOWN,HELP,CGDISABLE,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MAXESS,MAXITER,MEERROR,MGEPROP,MGSMULT,MGSTOL,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RECORDALPHA,RECORDEPSILON,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
+enum optionIndex{UNKNOWN,HELP,CPSHORIZON,CPSINIT,CPSOOM,CPSRATE,CSVALPHA,CSVAHORIZ,CSVREHORIZ,CSVN,MAXESS,MAXITER,MEERROR,NCHAINS,NTHREADS,OBSFILE,PRIORFILE,QUIET,RECORDALPHA,RECORDEPSILON,RESUME,SAMPLESIZE,SEED,SIMSIZE,THORIZON,TINIT,TRATE,TREEFILE,VERBOSITY};
 
 struct Arg: public option::Arg{
     static void printError(const char* msg1, const option::Option& opt, const char* msg2){
@@ -189,7 +189,6 @@ struct Arg: public option::Arg{
 
 const std::map<optionIndex,std::string> longOptionNames = {
     {HELP,"help"},
-    {CGDISABLE,"enable-gradient-descent"},
     {CPSHORIZON,"proposal-scaling-horizon"},
     {CPSINIT,"initial-proposal-scale"},
     {CPSOOM,"proposal-scaling-extrema-magnitude"},
@@ -201,9 +200,6 @@ const std::map<optionIndex,std::string> longOptionNames = {
     {MAXESS,"max-effective-sample-size"},
     {MAXITER,"max-iterations"},
     {MEERROR,"eval-rel-error"},
-    {MGEPROP,"gradient-step-proportion"},
-    {MGSMULT,"golden-search-boundary-mult"},
-    {MGSTOL,"golden-search-tolerance"},
     {NCHAINS,"chain-count"},
     {NTHREADS,"threads"},
     {OBSFILE,"observations"},
@@ -227,7 +223,6 @@ const std::map<optionIndex,std::string> usageMessages = {
     {CPSINIT,"[" + join(chain::CChain::GetPSInit()) + "] --" + longOptionNames.at(CPSINIT) + " (0,∞)εR \tThe inital scale factor for parameter proposals. Can be either a single value applied to all parameters or a comma separated list which is recycled as necessary. parameter specific scales are processed in alphabetical order of parameter name"},
     {CPSOOM,"[" + std::to_string(chain::CChain::GetPSOoM()) + "] --" + longOptionNames.at(CPSOOM) + " (0,∞)εR \tThe bounds on the scale factor for parameter proposals in base 10 orders of magnitude."},
     {CPSRATE,"[" + std::to_string(chain::CChain::GetPSRate()) + "] --" + longOptionNames.at(CPSRATE) + " (0,1]εR \t.The target rate of acceptance of parameter proposals"},
-    {CGDISABLE," --" + longOptionNames.at(CGDISABLE) + " \tAfter a failed proposal, a local gradient is estimated and then a minimum opposite the gradient is found by golden search, enabling will explore more rapidly, but proposals will occur slower."},
     {CSVALPHA,"[" + std::to_string(chain::CChain::GetSimVarAlpha()) + "] --" + longOptionNames.at(CSVALPHA) + " (0,1]εR \tThe initial 'confidence level' for evaluated likelihoods; Value adapts to adjust acceptance rates."},
     {CSVAHORIZ,"[" + std::to_string(chain::CChain::GetSimVarAlphaHorizon()) + "] --" + longOptionNames.at(CSVAHORIZ) + " (0,∞)εZ \tThe number of iterations betwwen updates of the alpha value in variance handling. Lower values decrease the time spent at near minima."},
     {CSVREHORIZ,"[" + std::to_string(chain::CChain::GetSimVarReEvalHorizon()) + "] --" + longOptionNames.at(CSVREHORIZ) + " (0,∞)εZ \t The number of iterations between estimates of the current simulation variability. More frequent updates are more accurate, but will significant slow the program."},
@@ -236,9 +231,6 @@ const std::map<optionIndex,std::string> usageMessages = {
     {MAXESS ,"[" + std::to_string(record::CRecord::GetMaxESS()) + "] --" + longOptionNames.at(MAXESS) + ", -n [0,∞)εZ \tThe effective sample size at which to stop iterating, 0 indicates no maximum."},  
     {MAXITER,"[" + std::to_string(defaultOpts.maxIter) + "] --" + longOptionNames.at(MAXITER) + " [0,∞)εZ \tThe maximum number of iterations, 0 indicates no maximum."}, 
     {MEERROR,"[" + std::to_string(model::CModel::GetEvalRelError()) +"] --" + longOptionNames.at(MEERROR) + " [0,∞)εR \tThe maximum relative error between observed and simulated data to be considered a match during evaluation."},
-    {MGEPROP,"[" + std::to_string(model::CModel::GetGEStepProp()) +"] --" + longOptionNames.at(MGEPROP) + " (0,∞)εR \tThe size of a step to take when estimating the gradient relative to the current parameter value."},
-    {MGSMULT,"[" + std::to_string(model::CModel::GetGSMult()) +"] --" + longOptionNames.at(MGSMULT) + " (0,∞)εR \tWhen minimizing in the gradient direction, the maximum distance to search relative to parameter value."},
-    {MGSTOL,"[" + std::to_string(model::CModel::GetGSTolProp()) +"] --" + longOptionNames.at(MGSTOL) + " (0,∞)εR \tWhen minimizing in the gradient direction, searching is terminated once the search interval has shrunk to this proportion of its initial size."},
     {NCHAINS,"[" + std::to_string(defaultOpts.nChains) + "] --" + longOptionNames.at(NCHAINS) + ", -c [1,∞)εZ \tThe number of independent chains to run."},
     {NTHREADS,"[" + std::to_string(defaultOpts.nThreads) + "] --" + longOptionNames.at(NTHREADS) + ", -j [1,∞)εZ \t The maximum number of threads to use"},
     {PRIORFILE,"--" + longOptionNames.at(PRIORFILE) + ", -p path \tA file specifying the prior(s) to use. Each prior's first line is \">PriorName\". Each subsequent line is in the format key\\tvalue. values may be comma separated lists. Use --priorlist and --default-prior for more information."},
@@ -274,7 +266,6 @@ const option::Descriptor usage [] = {
     {MAXITER,0,"",longOptionNames.at(MAXITER).c_str(),Arg::Whole,usageMessages.at(MAXITER).c_str()},
     {SIMSIZE,0,"s",longOptionNames.at(SIMSIZE).c_str(),Arg::Natural,usageMessages.at(SIMSIZE).c_str()},
     {UNKNOWN,0, "","",option::Arg::None, "===TUNING OPTIONS"},
-    {CGDISABLE,0,"",longOptionNames.at(CGDISABLE).c_str(),option::Arg::None,usageMessages.at(CGDISABLE).c_str()},
     {CPSHORIZON,0,"",longOptionNames.at(CPSHORIZON).c_str(),Arg::Natural,usageMessages.at(CPSHORIZON).c_str()},
     {CPSINIT,0,"",longOptionNames.at(CPSINIT).c_str(),Arg::String,usageMessages.at(CPSINIT).c_str()},
     {CPSOOM,0,"",longOptionNames.at(CPSOOM).c_str(),Arg::PositiveReal,usageMessages.at(CPSOOM).c_str()},
@@ -284,9 +275,6 @@ const option::Descriptor usage [] = {
     {CSVREHORIZ,0,"",longOptionNames.at(CSVREHORIZ).c_str(),Arg::Natural,usageMessages.at(CSVREHORIZ).c_str()},
     {CSVN,0,"",longOptionNames.at(CSVN).c_str(),Arg::Natural,usageMessages.at(CSVN).c_str()},
     {MEERROR,0, "",longOptionNames.at(MEERROR).c_str(),Arg::PositiveReal, usageMessages.at(MEERROR).c_str()},
-    {MGEPROP,0,"",longOptionNames.at(MGEPROP).c_str(),Arg::NonNegativeReal, usageMessages.at(MGEPROP).c_str()},
-    {MGSMULT,0,"",longOptionNames.at(MGSMULT).c_str(),Arg::NonNegativeReal, usageMessages.at(MGSMULT).c_str()},
-    {MGSTOL,0,"",longOptionNames.at(MGSTOL).c_str(),Arg::NonNegativeReal, usageMessages.at(MGSTOL).c_str()},
     {THORIZON,0,"",longOptionNames.at(THORIZON).c_str(),Arg::Natural,usageMessages.at(THORIZON).c_str()},
     {TINIT,0,"",longOptionNames.at(TINIT).c_str(),Arg::PositiveReal,usageMessages.at(TINIT).c_str()},
     {TRATE,0,"",longOptionNames.at(TRATE).c_str(),Arg::NonZeroProportion,usageMessages.at(TRATE).c_str()},
@@ -340,9 +328,6 @@ Opts ParseOptions(int argc, char ** argv){
     double csvN = chain::CChain::GetSimVarN();
     double csvReEvalHorizon = chain::CChain::GetSimVarReEvalHorizon();
     double meErr = model::CModel::GetEvalRelError();
-    double mgeProp = model::CModel::GetGEStepProp();
-    double mgsMult = model::CModel::GetGSMult();
-    double mgsTol = model::CModel::GetGSTolProp();
     double recAlpha = record::CRecord::GetAlpha();
     double recEpsilon = record::CRecord::GetEpsilon();
     double recMaxESS = record::CRecord::GetMaxESS();
@@ -354,10 +339,6 @@ Opts ParseOptions(int argc, char ** argv){
         size_t pos = 0;
         std::string initStr;
         switch(opt.index()){
-            case CGDISABLE:
-                chain::CChain::ToggleGradientDescent();
-                bEnableGradDescentStr = "TRUE";
-                break;
             case CPSHORIZON:
                 cpsHorizon = atoi(opt.arg);
                 break;
@@ -401,15 +382,6 @@ Opts ParseOptions(int argc, char ** argv){
             case MEERROR:
                meErr = atof(opt.arg);
                 break;
-            case MGEPROP:
-                mgeProp = atof(opt.arg);
-                break;
-            case MGSMULT:
-                mgsMult = atof(opt.arg);
-                break;
-            case MGSTOL:
-                mgsTol = atof(opt.arg);
-               break;
             case NCHAINS:
                 opts.nChains = atoi(opt.arg);
                 break;
@@ -466,8 +438,6 @@ Opts ParseOptions(int argc, char ** argv){
     chain::CChain::TunePS(cpsHorizon,cpsInit,cpsOoM,cpsRate);
     chain::CChain::TuneSimVar(csvAlpha,csvAlphaHorizon,csvN,csvReEvalHorizon);
     model::CModel::TuneEvaluation(meErr);
-    model::CModel::TuneGradientEstimation(mgeProp);
-    model::CModel::TuneGoldenSearch(mgsMult,mgsTol);
     record::CRecord::TuneThreshold(recAlpha,recEpsilon,recMaxESS);
 
     std::stringstream message;
@@ -481,7 +451,6 @@ Opts ParseOptions(int argc, char ** argv){
     message << "\t" << longOptionNames.at(SAMPLESIZE) << ":\t" << opts.maxSampleSize << "\n";
     message << "\t" << longOptionNames.at(MAXITER) << ":\t" << opts.maxIter << "\n";
     message << "\t" << longOptionNames.at(SIMSIZE) << ":\t" << opts.simSize << "\n";
-    message << "\t" << longOptionNames.at(CGDISABLE) << ":\t" << bEnableGradDescentStr << "\n";
     message << "\t" << longOptionNames.at(CPSHORIZON) << ":\t" << cpsHorizon << "\n";
     message << "\t" << longOptionNames.at(CPSINIT) << ":\t" << join(cpsInit) << "\n";
     message << "\t" << longOptionNames.at(CPSOOM) << ":\t" << cpsOoM << "\n";
@@ -491,11 +460,6 @@ Opts ParseOptions(int argc, char ** argv){
     message << "\t" << longOptionNames.at(CSVREHORIZ) << ":\t" << csvReEvalHorizon << "\n";
     message << "\t" << longOptionNames.at(CSVN) << ":\t" << csvN << "\n";
     message << "\t" << longOptionNames.at(MEERROR) << ":\t" << meErr << "\n";
-    if(bEnableGradDescentStr == "TRUE"){
-        message << "\t" << longOptionNames.at(MGEPROP) << ":\t" << mgeProp << "\n";
-        message << "\t" << longOptionNames.at(MGSMULT) << ":\t" << mgsMult << "\n";
-        message << "\t" << longOptionNames.at(MGSTOL) << ":\t" << mgsTol << "\n";
-    }
     message << "\t" << longOptionNames.at(THORIZON) << ":\t" << opts.tempHorizon << "\n";
     message << "\t" << longOptionNames.at(TINIT) << ":\t" << opts.initTempInc << "\n";
     message << "\t" << longOptionNames.at(TRATE) << ":\t" << opts.tgtSwpRate << "\n";
@@ -841,9 +805,8 @@ int main(int argc, char ** argv){
     ctpl::thread_pool threadPool(nChainThreads);
 
 
-    //Initialize the record of accepted samples with the list of non-fixed parameters
+    //The record of accepted samples with the list of non-fixed parameters
     record::CRecord *sampleRecord;
-    logger::Log("Minimum sample size is %d",logger::INFO,sampleRecord->nextMilestone());
 
     //Construct The Chain Objects
     std::vector<std::unique_ptr<chain::CChain>> vChains;
@@ -864,6 +827,7 @@ int main(int argc, char ** argv){
         sampleRecord = new record::CRecord(prior->getModelParameterNames(false));
         ResumeChains(vChains,*prior,tree,obs,opts.seed+1,opts.nChains,opts.nThreads,opts.simSize,threadPool,opts.resume,*sampleRecord);
     }
+    logger::Log("Minimum sample size is %d",logger::INFO,sampleRecord->nextMilestone());
 
     int iteration = 0;
     const std::vector<std::string> & vParamNames = vChains[0]->getModel().getParamNames();

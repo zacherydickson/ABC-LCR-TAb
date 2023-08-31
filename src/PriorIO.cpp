@@ -1,5 +1,6 @@
 #include "Distributions.hpp"
 #include "PriorIO.hpp"
+#include "Logging.h"
 #include <cstdlib>
 #include <utility>
 
@@ -25,6 +26,30 @@ namespace prior {
         this->fileHandle->close();
         delete this->fileHandle;
         this->fileHandle = NULL;
+    }
+
+    //#### STATIC METHODS #########################################################
+
+    bool PriorIO::parseHyperparameterValue(const std::string & curStr, const std::string & name, SParameterPriorLine & line){
+        if(curStr.empty() && name.empty()){ //Extra tab between params or at end of line
+            return false;
+        }
+        if(name.empty() || curStr.empty()){
+            throw std::invalid_argument("ParameterPrior line has an unnamed hyperparameter value or name without a value");
+        }
+        char* str_end = NULL;
+        const char* cStr = curStr.c_str();
+        double value = std::strtod(cStr,&str_end);
+        if(*str_end == 0){ //If a valid conversion occurs str_end points to a nul
+            line.paramPrior.hyperparameters[name]=value;
+        } else if(line.paramPrior.type == stats::Fixed && name == "mu"){
+            //Special case that allows parameters to be bound to the value
+            //of another parameter
+            line.paramPrior.dependency=curStr;
+        } else {
+            throw std::invalid_argument("ParameterPrior line has a non-numeric hyperparameter value");
+        }
+        return true;
     }
     
     
@@ -54,8 +79,23 @@ namespace prior {
                 mParamPriors[line.name] = line.paramPrior;
             }
         }
+        //Iterate over and check for dependencies
+        for(auto & pair : mParamPriors){
+            if(!pair.second.dependency.empty()){
+                if(mParamPriors.count(pair.second.dependency) == 0){
+                    logger::Log("Encountered unknown parameter dependency (%s) for %s",
+                            logger::ERROR,pair.second.dependency.c_str(),pair.first.c_str());
+                    throw std::invalid_argument("Unknown parameter dependency");
+                }
+                const SParameterPriorSpecification & dependency = mParamPriors.at(pair.second.dependency);
+                pair.second.type = dependency.type;
+                pair.second.hyperparameters = dependency.hyperparameters;
+            }
+        }
         return std::unique_ptr<CPrior>(new CPrior(type,mParamPriors));
     }
+
+
     
     //Line Format
     //paramName\tDisttype\tHyperparamName0:HyperparamValue0\t...HyperparamNameN:HyperparamValueN\n
@@ -82,13 +122,9 @@ namespace prior {
                         }
                         bType = true;
                     } else { //curStr now contains the value of a hyperparameter
-                        if(curStr.empty() && name.empty()){ //Extra tab between params
+                        if(!PriorIO::parseHyperparameterValue(curStr,name,line)){
                             break;
                         }
-                        if(name.empty() || curStr.empty()){
-                            throw std::invalid_argument("ParameterPrior line has an unnamed hyperparameter value or name without a value");
-                        }
-                        line.paramPrior.hyperparameters[name]=std::strtod(curStr.c_str(),NULL);
                         name.clear();
                     }
                     curStr.clear();
@@ -102,13 +138,7 @@ namespace prior {
                         break;
                     }
                     bLineComplete = true;
-                    if(curStr.empty() && name.empty()){ //Extra tab at end of line
-                        break;
-                    }
-                    if(name.empty() || curStr.empty()){
-                        throw std::invalid_argument("ParameterPrior line ends with an unnamed hyperparameter value or a name without a value");
-                    }
-                    line.paramPrior.hyperparameters[name]=std::strtod(curStr.c_str(),NULL);
+                    PriorIO::parseHyperparameterValue(curStr,name,line);
                     break;
                 default:
                     curStr += symbol;

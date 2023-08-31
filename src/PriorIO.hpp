@@ -24,6 +24,8 @@ namespace prior {
             std::fstream* fileHandle;
             bool bEOP;
             std::string lastName;
+        //Static Methods
+            static bool parseHyperparameterValue(const std::string & curStr, const std::string & name, SParameterPriorLine & line);
         //Methods
         private:
             size_t parse_pairs();

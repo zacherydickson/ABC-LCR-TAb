@@ -9,7 +9,6 @@ namespace chain {
 
     size_t CChain::AcceptScaleHorizon = 23;
     size_t CChain::AcceptAlphaHorizon = 51;
-    bool CChain::BGradientDescent = false;
     std::vector<double> CChain::vInitialProposalScales = {1.0};
     double CChain::InitialSimulationAlpha = 0.10;
     double CChain::MaximumProposalScaleOoM = 9.0;
@@ -188,46 +187,33 @@ namespace chain {
         //Make and evaluate the proposal
         std::unique_ptr<model::CModel> proposal = this->model->proposeJump(scaleMap,this->gen);
         bool bAccepted = false;
-        int bOnce= (CChain::BGradientDescent) ? 0 : 1;
-        do{
-            proposal->logJointPriorDensity = this->prior.get().calculateJointPriorDensity(proposal->getParamMap());
-            std::stringstream stream;
-            stream << *proposal << "\n";
-            logger::Log("Chain %d) Proposed Model\n%s",logger::DEBUG,this-> id,stream.str().c_str());
-            this->doEvaluation(proposal.get());
-            //Try accepting the proposal
-            double accept = this->calcAcceptanceRatio(*proposal,temperature);
-            std::string result = "Rejected";
-            if(accept == 1.0 || std::generate_canonical<double,10>(this->gen) < accept){
-                this->lastEval = this->model->getNLogP();
-                this->model = std::move(proposal);
-                bAccepted = true;
-                result = "Accepted";
-            }
-            logger::Log("Chain %d) %s proposal with probability %0.2f%%",logger::INFO,this->id,result.c_str(),accept*100.0);
-            if(bAccepted || bOnce){ //Update based on the whole assessment
-                //Update the proposal scales as necessary
-                double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
-                for(const std::string & name : paramNameSet){
-                    if(this->adaptiveScaleMap[name]->update(scaleUpdate,this->gen)){
-                        logger::Log("Chain %d) scale for %s proposals updated to %0.04f base 10 OoMs",logger::INFO,this->id,name.c_str(),std::log10(this->adaptiveScaleMap[name]->getValue()));
-                    }
-                }
-                if(this->adaptiveSimAlpha.update(scaleUpdate,this->gen)){
-                    logger::Log("Chain %d) alpha for simulation variance handling updated to %0.04f base 10 OoMs",logger::INFO,this->id,std::log10(this->adaptiveSimAlpha.getValue()));
+        proposal->logJointPriorDensity = this->prior.get().calculateJointPriorDensity(proposal->getParamMap());
+        std::stringstream stream;
+        stream << *proposal << "\n";
+        logger::Log("Chain %d) Proposed Model\n%s",logger::DEBUG,this-> id,stream.str().c_str());
+        this->doEvaluation(proposal.get());
+        //Try accepting the proposal
+        double accept = this->calcAcceptanceRatio(*proposal,temperature);
+        std::string result = "Rejected";
+        if(accept == 1.0 || std::generate_canonical<double,10>(this->gen) < accept){
+            this->lastEval = this->model->getNLogP();
+            this->model = std::move(proposal);
+            bAccepted = true;
+            result = "Accepted";
+        }
+        logger::Log("Chain %d) %s proposal with probability %0.2f%%",logger::INFO,this->id,result.c_str(),accept*100.0);
+        if(bAccepted){ //Update based on the whole assessment
+            //Update the proposal scales as necessary
+            double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
+            for(const std::string & name : paramNameSet){
+                if(this->adaptiveScaleMap[name]->update(scaleUpdate,this->gen)){
+                    logger::Log("Chain %d) scale for %s proposals updated to %0.04f base 10 OoMs",logger::INFO,this->id,name.c_str(),std::log10(this->adaptiveScaleMap[name]->getValue()));
                 }
             }
-            if(!bAccepted && !bOnce){
-                logger::Log("Chain %d) Attempting Gradient descent",logger::INFO,this->id);
-                size_t quickNSim = (this->nSim > 4) ? this->nSim / 4 : 1; 
-                std::unique_ptr<model::CModel> gradientProposal = proposal->goldenSearch(this->tree,this->obs,this->threadPool,this->gen,quickNSim);
-                if(gradientProposal){ //Check if a valid model was returned
-                    proposal = std::move(gradientProposal);
-                } else { //Otherwise Give up
-                    bOnce = true;
-                }
+            if(this->adaptiveSimAlpha.update(scaleUpdate,this->gen)){
+                logger::Log("Chain %d) alpha for simulation variance handling updated to %0.04f base 10 OoMs",logger::INFO,this->id,std::log10(this->adaptiveSimAlpha.getValue()));
             }
-        } while(!bAccepted && !bOnce++);
+        }
         return bAccepted;
     }
 
