@@ -29,6 +29,9 @@ namespace aparam {
         //neg * neg = pos -> decrease value
         //pos * pos = pos -> increase value
         //neg * pos = neg -> hold value
+        counter = 0;
+        rate0 = rate;
+        rate = 0;
         if(offset * delta >= 0){ //The offset and the rate are in the same direction
             double f = (offset > 0) ? factor : (1 / factor); 
             double p = std::generate_canonical<double,10>(gen);
@@ -39,11 +42,9 @@ namespace aparam {
             } else if(value < minValue){
                 value = minValue;
             }
+            return true;
         }
-        counter = 0;
-        rate0 = rate;
-        rate = 0;
-        return true;
+        return false;
     }
 
 }

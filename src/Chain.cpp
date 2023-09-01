@@ -202,17 +202,15 @@ namespace chain {
             result = "Accepted";
         }
         logger::Log("Chain %d) %s proposal with probability %0.2f%%",logger::INFO,this->id,result.c_str(),accept*100.0);
-        if(bAccepted){ //Update based on the whole assessment
-            //Update the proposal scales as necessary
-            double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
-            for(const std::string & name : paramNameSet){
-                if(this->adaptiveScaleMap[name]->update(scaleUpdate,this->gen)){
-                    logger::Log("Chain %d) scale for %s proposals updated to %0.04f base 10 OoMs",logger::INFO,this->id,name.c_str(),std::log10(this->adaptiveScaleMap[name]->getValue()));
-                }
+        //Update scales and alpha based on acceptance
+        double scaleUpdate = (bAccepted) ? 1.0 : 0.0;
+        for(const std::string & name : paramNameSet){
+            if(this->adaptiveScaleMap[name]->update(scaleUpdate,this->gen)){
+                logger::Log("Chain %d) scale for %s proposals updated to %0.04f base 10 OoMs",logger::INFO,this->id,name.c_str(),std::log10(this->adaptiveScaleMap[name]->getValue()));
             }
-            if(this->adaptiveSimAlpha.update(scaleUpdate,this->gen)){
-                logger::Log("Chain %d) alpha for simulation variance handling updated to %0.04f base 10 OoMs",logger::INFO,this->id,std::log10(this->adaptiveSimAlpha.getValue()));
-            }
+        }
+        if(this->adaptiveSimAlpha.update(scaleUpdate,this->gen)){
+            logger::Log("Chain %d) alpha for simulation variance handling updated to %0.04f base 10 OoMs",logger::INFO,this->id,std::log10(this->adaptiveSimAlpha.getValue()));
         }
         return bAccepted;
     }
