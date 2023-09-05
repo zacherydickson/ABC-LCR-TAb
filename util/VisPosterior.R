@@ -1,7 +1,7 @@
 args <- commandArgs(trailingOnly = T)
 
 if(length(args) < 1){
-    stop("Usage: Vis....R inFile.res [alpha = 0.05] (parses inFile.log also creates inFile.pdf and inFile.eval")
+    stop("Usage: Vis....R inFile.res [imageFmt = pdf|tiff] [alpha = 0.05] (parses inFile.log also creates inFile.pdf and inFile.eval")
 }
 
 resFile <- args[1]
@@ -9,17 +9,29 @@ resFile <- args[1]
 #if(is.na(threads)){
 #    threads <- 1
 #}
-CIalpha <- as.numeric(args[2])
+outFmt <- tolower(args[2])
+if(is.na(outFmt)){
+    outFmt <- "pdf"
+}
+if(!outFmt %in% c("pdf","tiff")){
+       stop("imgFmt must be one of pdf or tiff")
+}
+CIalpha <- as.numeric(args[3])
 if(is.na(CIalpha)){
     CIalpha=0.05
 }
+
 logFile <- sub("res$","log",resFile)
-pdfFile <- sub("res$","pdf",resFile)
+if(outFmt == "pdf"){
+    imgFile <- sub("res$",outFmt,resFile)
+} else if(outFmt == "tiff") {
+    imgFile <- paste0(substr(resFile,1,nchar(resFile)-4),"_%02d.",outFmt)
+}
 evalFile <- sub("res$","eval",resFile)
 ciFile <- sub("res$","ci",resFile)
 
-if(any(resFile == c(logFile,pdfFile,evalFile))){
-    stop("Could not generate unique log, pdf, and eval files from the inFile, does it end in 'res'?")
+if(any(resFile == c(logFile,imgFile,evalFile))){
+    stop("Could not generate unique log, image, and eval files from the inFile, does it end in 'res'?")
 }
 
 require("vioplot")
@@ -635,7 +647,11 @@ ymin = apply(df[,col.names[-1]][,!isFixed],2,function(x){range(truncAway(signLog
 
 SwapIdx <- parseLog(logFile)
 
-pdf(pdfFile,title=paste("ABC2 Results",resFile, sep= " - "))
+if(outFmt == "pdf"){
+    pdf(imgFile,title=paste("ABC2 Results",resFile, sep= " - "))
+} else if(outFmt == "tiff"){
+    tiff(imgFile,width=7,height=7,"in",res=300,compression="lzw")
+}
 
 
 burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
