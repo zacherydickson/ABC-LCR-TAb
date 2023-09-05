@@ -1,7 +1,7 @@
 args <- commandArgs(trailingOnly = T)
 
 if(length(args) < 1){
-    stop("Usage: Vis....R inFile.res [imageFmt = pdf|tiff] [alpha = 0.05] (parses inFile.log also creates inFile.pdf and inFile.eval")
+    stop("Usage: Vis....R inFile.res [imageFmt = pdf|tiff] [alpha = 0.05] (parses inFile.log also creates inFile.imageFmt, inFile.eval, and inFile.ci")
 }
 
 resFile <- args[1]
@@ -42,6 +42,9 @@ sourceCpp(CPPSource)
 ColourPalette <- c(SpanishGrey="#989898",SeaGreen="#388659",Coral="#FF7F50",SteelBlue="#4682B4",Veronica="#A020F0",LightBlue="#ADD8E6")
 #CIPalette = setNames(c("grey","#7A9CC6","#B3D2B2","#FFFD98"),c("0","90","95","99"))
 CIPalette = setNames(ColourPalette[c("Coral","Veronica","SteelBlue","LightBlue","SpanishGrey")],c("0","50","90","95","99"))
+TopologyPalette <- setNames(terrain.colors(20),seq(0,100,l=21)[-21])
+
+AllPalettes <- list(ci = CIPalette, topo = TopologyPalette)
 
 ######## FUNCTIONS ##############
 
@@ -343,20 +346,20 @@ getRescaledMode <- function(stdMat){
     stdMat$mode * stdMat$stdInfo[2,] + stdMat$stdInfo[1,]
 }
 
-ColourByModalDistance <- function(stdMat,ciPalette,default="black"){
-    if(attr(stdMat,"class") != "StandardizedMatrix"){
-        stop("Attempt to ColourByModalDistance with a non-StandardizedMatrix object")
-    }
-    if(length(stdMat$modalDist) == 0){
-        stop("Attempt to ColourByModalDistance with improperly initialized StandardizedMatrix")
-    }
-    pointCol = rep("black",stdMat$n)
-    ciPalette <- ciPalette[order(as.numeric(names(ciPalette)))]
-    q = as.numeric(names(ciPalette))/100
-    colIdx <- rowSums(sapply(quantile(stdMat$modalDist,q),"<",stdMat$modalDist))
-    pointCol[colIdx > 0] <- ciPalette[colIdx]
-    pointCol
-}
+#ColourByModalDistance <- function(stdMat,ciPalette,default="black"){
+#    if(attr(stdMat,"class") != "StandardizedMatrix"){
+#        stop("Attempt to ColourByModalDistance with a non-StandardizedMatrix object")
+#    }
+#    if(length(stdMat$modalDist) == 0){
+#        stop("Attempt to ColourByModalDistance with improperly initialized StandardizedMatrix")
+#    }
+#    pointCol = rep("black",stdMat$n)
+#    ciPalette <- ciPalette[order(as.numeric(names(ciPalette)))]
+#    q = as.numeric(names(ciPalette))/100
+#    colIdx <- rowSums(sapply(quantile(stdMat$modalDist,q),"<",stdMat$modalDist))
+#    pointCol[colIdx > 0] <- ciPalette[colIdx]
+#    pointCol
+#}
 
 estimateCredibilityRadii <- function(stdMat,cutoffs = c(0.5,0.9,0.95,0.99)){
     if(attr(stdMat,"class") != "StandardizedMatrix"){
@@ -372,19 +375,43 @@ estimateCredibilityRadii <- function(stdMat,cutoffs = c(0.5,0.9,0.95,0.99)){
     stdMat
 }
 
+estimateTopologyHeights <- function(stdMat,cutoffs = seq(0,1,l=21)[-c(1,21)]){
+    if(attr(stdMat,"class") != "StandardizedMatrix"){
+        stop("Attempt to estimateTopologyHeights  with a non-StandardizedMatrix object")
+    }
+    if(length(stdMat$density) == 0){
+        stop("Attempt to estimateTopologyHeights with improperly initialized StandardizedMatrix")
+    }
+    densOrder <- order(stdMat$density,decreasing=T)
+    cumProp <- cumsum(stdMat$density[densOrder]) / sum(stdMat$density)
+    idx <- densOrder[sapply(cutoffs,function(x){min(which(cumProp > x))})]
+    stdMat$topoHeights <- setNames(c(0,stdMat$density[idx]),c(0,cutoffs*100))
+    stdMat
+}
 
-ColourByCredibility <- function(stdMat,ciPalette,defaultCol="black"){
+ColourBy <- function(stdMat,mode=c("ci","topo"),palette,defaultCol="black"){
     if(attr(stdMat,"class") != "StandardizedMatrix"){
         stop("Attempt to ColourByCredibility  with a non-StandardizedMatrix object")
     }
-    if(length(stdMat$credRadii) == 0){
-        stop("Attempt to ColourByCredibility with improperly initialized StandardizedMatrix")
+    mode <- match.arg(mode)
+    if(mode == "ci"){
+        if(length(stdMat$credRadii) == 0){
+            stop("Attempt to ColourByCredibility with improperly initialized StandardizedMatrix")
+        }
+        factor <- stdMat$credRadii
+        values <- stdMat$modalDist
+    } else if(mode == "topo"){
+        if(length(stdMat$topoHeights) == 0){
+            stop("Attempt to ColourByTopology with improperly initialized StandardizedMatrix")
+        }
+        factor <- stdMat$topoHeights
+        values <- stdMat$density
     }
     #Calculate cumulative densities and colour the points
-    pointCol = rep("black",stdMat$n)
-    ciPalette <- ciPalette[order(as.numeric(names(ciPalette)))]
-    colIdx <- rowSums(sapply(stdMat$credRadii[names(ciPalette)],"<",stdMat$modalDist))
-    pointCol[colIdx > 0] <- ciPalette[colIdx]
+    pointCol = rep(defaultCol,stdMat$n)
+    palette <- palette[order(as.numeric(names(palette)))]
+    colIdx <- rowSums(sapply(factor[names(palette)],"<",values))
+    pointCol[colIdx > 0] <- palette[colIdx]
     pointCol
 }
 
@@ -487,18 +514,29 @@ vioplotWPoints <- function(data,pointCol=NULL,mode=NULL,order=1:(data),...){
 #by default no axis are shown
 #axis can be a vector containing the values 1:4, an axis which be shown on each side
 #present
-scatterPlotWiCred <- function(stdMat,axes=NULL,col=rep("black",stdMat$n),...){
+scatterPlotWiCred <- function(stdMat,axes=NULL,col=rep("black",stdMat$n),cmode=c("ci","topo"),...){
+    cmode <- match.arg(cmode)
     if(attr(stdMat,"class") != "StandardizedMatrix"){
         stop("Attempt to scatterPlotWiCred with a non-StandardizedMatrix object")
     }
-    if(length(stdMat$modalDist) == 0 || length(stdMat$credRadii) == 0){
-        stop("Attempt to scatterPlotWiCred before estimating the mode or estimating credibility")
+    if(length(stdMat$modalDist) == 0){
+        stop("Attempt to scatterPlotWiCred before estimating the mode")
+    }
+    if(cmode == "ci" && length(stdMat$credRadii) == 0){
+        stop("Attempt to scatterPlotWiCred before estimating the credibility")
+    }
+    if(cmode == "topo" && length(stdMat$credRadii) == 0){
+        stop("Attempt to scatterPlotWiCred before estimating the topology")
     }
     if(stdMat$m > 2){
         stop("Attempt to build a scatterplot for a Standardized Matrix which hasn't been subset to two columns")
     }
     mat <- stdMat$mat |> sweep(2,stdMat$stdInfo[2,],"*") |> sweep(2,stdMat$stdInfo[1,],"+") 
-    order <- order(stdMat$modalDist,decreasing=T)
+    if(cmode == "ci"){
+        order <- order(stdMat$modalDist,decreasing=T)
+    } else if(cmode == "topo"){
+        order <- order(stdMat$density)
+    }
 
     mat <- mat[order,]
     col <- col[(1:stdMat$n -1) %% length(col) +1]
@@ -542,8 +580,10 @@ specialHist <- function(x,horiz=F,...){
     invisible(obj)
 }
 
-scatterPlotMatrix <- function(stdMat,...){
-    pointCol <- ColourByCredibility(StdMat,CIPalette)
+scatterPlotMatrix <- function(stdMat,cmode=c("ci","topo"),palette,...){
+    cmode <- match.arg(cmode)
+    palette <- AllPalettes[[cmode]]
+    pointCol <- ColourBy(StdMat,cmode,palette)
     oldPar <- par()
     par(mfrow = c(stdMat$m,stdMat$m),mar=c(0.5,0.5,0.1,0.1),oma=c(4.1,4.1,2.1,0.1),las=2,xpd=T)
         #,cex=1.3)
@@ -574,21 +614,31 @@ scatterPlotMatrix <- function(stdMat,...){
                 pos <- (plotH *(irow-1 + 1/2) + irow*par()$mai[2] + (irow-1)*par()$mai[4]) /
                         (plotH + sum(par()$mai[c(1,3)])) / stdMat$m
                 mtext(stdMat$names[row],side=2,at=pos,outer=T,cex=par()$cex,adj=0.5,las=3,line=3)
+                
                 next
             }
             if(row == 1 & col==stdMat$m-2){
                 plot.new()
-#                text(0.5,0.9,"Credibility")
-                legend("topright",legend=paste("<",names(CIPalette)[2:3],"%"),fill=CIPalette[1:2],bty="n",cex=par()$cex*3/2)
-                pos <- (plotW * (stdMat$m-1) + (stdMat$m-0.5)*(par()$mai[2] + par()$mai[4])) /
-                        (plotW + sum(par()$mai[c(1,3)])) / stdMat$m
-                mtext("Credibility",side=3,at=pos,outer=T,cex=par()$cex*3/2,adj=0.5,las=1,line=0)
+                if(cmode == "ci"){
+                    legend("topright",legend=paste("<",names(palette)[2:3],"%"),fill=palette[1:2],bty="n",cex=par()$cex*3/2)
+                } else if(cmode == "topo"){
+                    raster <- as.raster(matrix(palette[1:(length(palette)/2)],nrow=1))
+                    rasterImage(raster,0,0,1,0.5)
+                    axisLab <- as.numeric(names(palette[1:(length(palette)/2)]))/100
+                    axis(side=1,at = (axisLab - min(axisLab))/ (max(axisLab) - min(axisLab)), labels=axisLab)
+                }
                 next
             }
             if(row == 1 & col==stdMat$m-1){
                 plot.new()
-#                text(0.5,0.9,"Credibility")
-                legend("topleft",legend=paste("<",names(CIPalette)[4:5],"%"),fill=CIPalette[3:4],bty="n",cex=par()$cex*3/2)
+                if(cmode == "ci"){
+                    legend("topleft",legend=paste("<",names(palette)[4:5],"%"),fill=palette[3:4],bty="n",cex=par()$cex*3/2)
+                } else if(cmode == "topo"){
+                    raster <- as.raster(matrix(palette[(length(palette)/2):length(palette)],nrow=1))
+                    rasterImage(raster,0,0,1,0.5)
+                    axisLab <- as.numeric(names(palette[(length(palette)/2):length(palette)]))/100
+                    axis(side=1,at = (axisLab - min(axisLab))/ (max(axisLab) - min(axisLab)), labels=axisLab)
+                }
                 next
             }
             if(col == row + 1)
@@ -603,10 +653,19 @@ scatterPlotMatrix <- function(stdMat,...){
             }
             axes <- (1:2)[c(row==stdMat$m,col==-1)]
             scatterPlotWiCred(subsetStdMat(stdMat,stdMat$names[c(col,row)]),axes,
-                              col=pointCol,xlim=limits[,col],ylim=limits[,row])
+                              col=pointCol,xlim=limits[,col],ylim=limits[,row],cmode=cmode)
             points(mode[col],mode[row],pch=19)
         }
     }
+    #Add Legend Label
+    pos <- (plotW * (stdMat$m-1) + (stdMat$m-0.5)*(par()$mai[2] + par()$mai[4])) /
+            (plotW + sum(par()$mai[c(1,3)])) / stdMat$m
+    if(cmode == "ci"){
+        legendLabel <- "Credibility"
+    } else if(cmode == "topo"){
+        legendLabel <- "Cumulative Density"
+    }
+    mtext(legendLabel,side=3,at=pos,outer=T,cex=par()$cex*3/2,adj=0.5,las=1,line=0)
     par(mfrow=oldPar$mfrow,mar=oldPar$mar,oma=oldPar$oma,las=oldPar$las,xpd=oldPar$xpd,cex=oldPar$cex)
 }
 
@@ -653,7 +712,6 @@ if(outFmt == "pdf"){
     tiff(imgFile,width=7,height=7,"in",res=300,compression="lzw")
 }
 
-
 burnin = kneedle(df$nLogP,mESSBurninEst(sum(!isFixed)),bPlot=TRUE)
 RowstoKeep = RowstoKeep[RowstoKeep > burnin]
 
@@ -663,11 +721,13 @@ message("\tSmoothed Density ...")
 StdMat <- getDensityEst(StdMat)
 message("\tMode ...")
 StdMat <- estimateMvMode(StdMat)
-message("\tCredibility ...")
+message("\tCredibility and Topology ...")
 StdMat <- estimateCredibilityRadii(StdMat)
+StdMat <- estimateTopologyHeights(StdMat)
 StdMat <- addFixedNames(StdMat,isFixed,unlist(df[1,names(isFixed)]))
 
-pointCol <- ColourByCredibility(StdMat,CIPalette)
+
+pointCol <- ColourBy(StdMat,"ci",AllPalettes[["ci"]])
 pointOrder <- order(StdMat$modalDist,decreasing=T)
 
 message("Plotting ...")
@@ -694,7 +754,8 @@ layout(matrix(1,ncol=1))
 par(mar = mar)
 garbage <- lapply(split(col.names[-1][!isFixed],interaction(OoM,ymin,drop=T)),function(cn){vioplotWPoints(df[RowstoKeep[pointOrder],cn],names=cn,pointCol[pointOrder],getRescaledMode(StdMat)[cn])});
 
-scatterPlotMatrix(StdMat);
+scatterPlotMatrix(StdMat,"ci");
+scatterPlotMatrix(StdMat,"topo");
 garbage <- dev.off()
 
 message("Outputting eval-prior ...")
